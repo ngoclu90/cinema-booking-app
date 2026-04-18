@@ -1,11 +1,11 @@
 {
-    "name": "cinema_booking_app",
-    "short_name": "cinema_booking_app",
+    "name": "Cinema Booking",
+    "short_name": "Cinema Booking",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#000000",
+    "theme_color": "#E12636",
+    "description": "Cinema Booking mobile experience inspired by Beta Two.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
