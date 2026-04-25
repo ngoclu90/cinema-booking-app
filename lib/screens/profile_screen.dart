@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../components/ui/index.dart';
+import '../design_system/tokens/index.dart';
+import '../layouts/app_shell/index.dart';
 import '../models/app_account.dart';
-import '../theme/design_tokens.dart';
 import '../utils/app_notifier.dart';
-import '../widgets/accent_button.dart';
-import '../widgets/profile_item.dart';
 
 class ProfileScreen extends StatelessWidget {
   final AppAccount account;
@@ -23,250 +23,193 @@ class ProfileScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final profile = account.profile;
-    return Scaffold(
-      body: SafeArea(
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-          child: Column(
-            children: [
-              const SizedBox(height: AppSpacing.md),
-              Container(
-                padding: const EdgeInsets.all(AppSpacing.lg),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).cardTheme.color,
-                  borderRadius: BorderRadius.circular(AppRadius.hero),
-                ),
-                child: Column(
+    return ScreenContainer(
+      title: 'Hồ sơ',
+      subtitle: 'Tài khoản và hỗ trợ',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AppCard(
+            padding: AppCardPadding.lg,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 68,
-                          height: 68,
-                          decoration: BoxDecoration(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.primary.withAlphaPercent(0.12),
-                            shape: BoxShape.circle,
+                    Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        color: AppColors.brandPrimarySoft,
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        border: Border.all(color: AppColors.brandPrimary),
+                      ),
+                      child: Center(
+                        child: Text(
+                          profile.name.trim().isEmpty
+                              ? 'U'
+                              : profile.name.trim().characters.first,
+                          style: AppTypography.title.copyWith(
+                            color: AppColors.brandPrimary,
                           ),
-                          child: Center(
-                            child: Text(
-                              profile.name.split(' ').first[0],
-                              style: Theme.of(context).textTheme.headlineMedium
-                                  ?.copyWith(
-                                    color: Theme.of(
-                                      context,
-                                    ).colorScheme.primary,
-                                  ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: AppSpacing.lg),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                profile.name,
-                                style: Theme.of(
-                                  context,
-                                ).textTheme.headlineMedium,
-                              ),
-                              const SizedBox(height: AppSpacing.xs),
-                              Text(
-                                account.roleLabel,
-                                style: Theme.of(context).textTheme.bodyLarge
-                                    ?.copyWith(
-                                      color: Theme.of(
-                                        context,
-                                      ).colorScheme.primary,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                              ),
-                              const SizedBox(height: AppSpacing.xs),
-                              Text(
-                                profile.email,
-                                style: Theme.of(context).textTheme.bodyMedium
-                                    ?.copyWith(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .onSurface
-                                          .withAlphaPercent(0.70),
-                                    ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(AppRadius.pill),
-                      child: LinearProgressIndicator(
-                        minHeight: 10,
-                        value: profile.tierProgress,
-                        backgroundColor: Theme.of(context).dividerColor,
-                        valueColor: AlwaysStoppedAnimation(
-                          Theme.of(context).colorScheme.primary,
                         ),
                       ),
                     ),
-                    const SizedBox(height: AppSpacing.sm),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _ProfileStat(
-                            label: account.leftStatLabel,
-                            value: account.leftStatValue,
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            profile.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.subtitle.copyWith(
+                              color: AppColors.textPrimary,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: AppSpacing.sm),
-                        Expanded(
-                          child: _ProfileStat(
-                            label: account.rightStatLabel,
-                            value: account.rightStatValue,
+                          const SizedBox(height: AppSpacing.xs),
+                          Text(
+                            profile.email,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.caption.copyWith(
+                              color: AppColors.textSecondary,
+                            ),
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: AppSpacing.sm),
+                          AppBadge(
+                            label: account.roleLabel,
+                            backgroundColor: AppColors.brandPrimarySoft,
+                            foregroundColor: AppColors.textPrimary,
+                            borderColor: AppColors.brandPrimary,
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              ProfileItem(
-                title: 'Thông tin tài khoản',
-                subtitle: profile.membership,
-                leadingIcon: account.isStaff
-                    ? Icons.badge_outlined
-                    : Icons.workspace_premium_outlined,
-                badgeLabel: account.isStaff ? 'STAFF' : 'USER',
-                onTap: () {
-                  AppNotifier.info(
-                    context,
-                    title: 'Thông tin tài khoản',
-                    description: account.roleTitle,
-                  );
-                },
-              ),
-              ProfileItem(
-                title: 'Phương thức thanh toán',
-                subtitle: 'Visa kết thúc bằng 1234',
-                leadingIcon: Icons.credit_card_outlined,
-                onTap: () {
-                  AppNotifier.info(
-                    context,
-                    title: 'Phương thức thanh toán',
-                    description: 'Thông tin thanh toán sẽ hiển thị tại đây.',
-                  );
-                },
-              ),
-              ProfileItem(
-                title: 'Thể loại yêu thích',
-                subtitle: profile.favoriteGenre,
-                leadingIcon: Icons.movie_filter_outlined,
-                onTap: () {
-                  AppNotifier.success(
-                    context,
-                    title: 'Sở thích đã được lưu',
-                    description: 'Thể loại yêu thích của bạn đã được cập nhật.',
-                  );
-                },
-              ),
-              ProfileItem(
-                title: 'Giao diện ứng dụng',
-                subtitle: _themeModeLabel(themeMode),
-                leadingIcon: Icons.dark_mode_outlined,
-                onTap: () => _showThemeModeSheet(context),
-              ),
-              ProfileItem(
-                title: 'Hỗ trợ',
-                subtitle: 'Trung tâm trợ giúp và câu hỏi thường gặp',
-                leadingIcon: Icons.headset_mic_outlined,
-                onTap: () {
-                  AppNotifier.info(
-                    context,
-                    title: 'Hỗ trợ',
-                    description: 'Bạn có thể xem các mục trợ giúp tại đây.',
-                  );
-                },
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              AccentButton(
-                label: 'Đăng xuất',
-                reversed: true,
-                onPressed: onLogout,
-              ),
-              const SizedBox(height: AppSpacing.lg),
-            ],
+                const SizedBox(height: AppSpacing.lg),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _StatTile(
+                        label: account.leftStatLabel,
+                        value: account.leftStatValue,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: _StatTile(
+                        label: account.rightStatLabel,
+                        value: account.rightStatValue,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
+          const SizedBox(height: AppSpacing.xxl),
+          const SectionHeader(title: 'Tài khoản'),
+          const SizedBox(height: AppSpacing.md),
+          _ProfileMenuItem(
+            icon: Icons.person_outline,
+            title: 'Thông tin cá nhân',
+            subtitle: profile.phone,
+            onPressed: () =>
+                _notify(context, 'Thông tin cá nhân', profile.membership),
+          ),
+          _ProfileMenuItem(
+            icon: Icons.event_seat_outlined,
+            title: 'Vé của tôi',
+            subtitle: 'Quản lý vé đã đặt',
+            onPressed: () =>
+                _notify(context, 'Vé của tôi', 'Mở từ thanh điều hướng dưới.'),
+          ),
+          _ProfileMenuItem(
+            icon: Icons.confirmation_number_outlined,
+            title: 'Voucher của tôi',
+            subtitle: 'Ưu đãi và mã khuyến mãi',
+            onPressed: () => _notify(
+              context,
+              'Voucher của tôi',
+              'Voucher đang được đồng bộ.',
+            ),
+          ),
+          _ProfileMenuItem(
+            icon: Icons.lock_outline,
+            title: 'Đổi mật khẩu',
+            subtitle: 'Cập nhật bảo mật tài khoản',
+            onPressed: () => _notify(
+              context,
+              'Đổi mật khẩu',
+              'Chức năng sẽ nối API xác thực.',
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xxl),
+          const SectionHeader(title: 'Hỗ trợ'),
+          const SizedBox(height: AppSpacing.md),
+          _ProfileMenuItem(
+            icon: Icons.settings_outlined,
+            title: 'Cài đặt',
+            subtitle: _themeLabel(themeMode),
+            onPressed: () => _showThemeSheet(context),
+          ),
+          _ProfileMenuItem(
+            icon: Icons.support_agent,
+            title: 'Trung tâm hỗ trợ',
+            subtitle: 'Câu hỏi thường gặp và liên hệ rạp',
+            onPressed: () => _notify(
+              context,
+              'Hỗ trợ',
+              'Beta Two luôn sẵn sàng hỗ trợ bạn.',
+            ),
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          AppButton(
+            title: 'Đăng xuất',
+            variant: AppButtonVariant.danger,
+            leftIcon: const Icon(Icons.logout),
+            onPressed: onLogout,
+          ),
+        ],
       ),
     );
   }
 
-  Future<void> _showThemeModeSheet(BuildContext context) async {
+  void _notify(BuildContext context, String title, String message) {
+    AppNotifier.info(context, title: title, description: message);
+  }
+
+  Future<void> _showThemeSheet(BuildContext context) async {
     await showModalBottomSheet<void>(
       context: context,
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(AppRadius.hero),
-      ),
       builder: (sheetContext) {
         return SafeArea(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.md,
-              AppSpacing.lg,
-              AppSpacing.md,
-              AppSpacing.lg,
-            ),
+            padding: const EdgeInsets.all(AppSpacing.lg),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                _ThemeModeOption(
-                  icon: Icons.brightness_auto_outlined,
-                  title: 'Theo thiết bị',
-                  subtitle: 'Tự đổi theo giao diện của máy',
-                  selected: themeMode == ThemeMode.system,
-                  onTap: () {
-                    onThemeModeChanged(ThemeMode.system);
-                    Navigator.of(sheetContext).pop();
-                    AppNotifier.info(
-                      context,
-                      title: 'Đã đổi giao diện',
-                      description: 'Ứng dụng sẽ tự theo thiết bị.',
-                    );
-                  },
-                ),
-                _ThemeModeOption(
-                  icon: Icons.light_mode_outlined,
-                  title: 'Sáng',
-                  subtitle: 'Nền trắng tinh',
-                  selected: themeMode == ThemeMode.light,
-                  onTap: () {
-                    onThemeModeChanged(ThemeMode.light);
-                    Navigator.of(sheetContext).pop();
-                    AppNotifier.info(
-                      context,
-                      title: 'Đã đổi giao diện',
-                      description: 'Ứng dụng đang ở chế độ sáng.',
-                    );
-                  },
-                ),
-                _ThemeModeOption(
+                _ThemeOption(
                   icon: Icons.dark_mode_outlined,
                   title: 'Tối',
-                  subtitle: 'Nền đen thui',
+                  subtitle: 'Giao diện cinematic mặc định',
                   selected: themeMode == ThemeMode.dark,
-                  onTap: () {
+                  onPressed: () {
                     onThemeModeChanged(ThemeMode.dark);
                     Navigator.of(sheetContext).pop();
-                    AppNotifier.info(
-                      context,
-                      title: 'Đã đổi giao diện',
-                      description: 'Ứng dụng đang ở chế độ tối.',
-                    );
+                  },
+                ),
+                _ThemeOption(
+                  icon: Icons.brightness_auto_outlined,
+                  title: 'Theo thiết bị',
+                  subtitle: 'Vẫn giữ palette cinematic',
+                  selected: themeMode == ThemeMode.system,
+                  onPressed: () {
+                    onThemeModeChanged(ThemeMode.system);
+                    Navigator.of(sheetContext).pop();
                   },
                 ),
               ],
@@ -277,118 +220,165 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  String _themeModeLabel(ThemeMode mode) {
-    switch (mode) {
-      case ThemeMode.light:
-        return 'Sáng';
-      case ThemeMode.dark:
-        return 'Tối';
-      case ThemeMode.system:
-        return 'Theo thiết bị';
-    }
+  String _themeLabel(ThemeMode mode) {
+    return switch (mode) {
+      ThemeMode.dark => 'Tối',
+      ThemeMode.light => 'Tối',
+      ThemeMode.system => 'Theo thiết bị',
+    };
   }
 }
 
-class _ProfileStat extends StatelessWidget {
+class _StatTile extends StatelessWidget {
   final String label;
   final String value;
 
-  const _ProfileStat({required this.label, required this.value});
+  const _StatTile({required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardTheme.color,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-      ),
+    return AppCard(
+      padding: AppCardPadding.sm,
+      backgroundColor: AppColors.bgSurface2,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             label,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withAlphaPercent(0.64),
-            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.caption.copyWith(color: AppColors.textMuted),
           ),
           const SizedBox(height: AppSpacing.xs),
-          Text(value, style: Theme.of(context).textTheme.titleLarge),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.bodyStrong.copyWith(
+              color: AppColors.textPrimary,
+            ),
+          ),
         ],
       ),
     );
   }
 }
 
-class _ThemeModeOption extends StatelessWidget {
+class _ProfileMenuItem extends StatelessWidget {
   final IconData icon;
   final String title;
   final String subtitle;
-  final bool selected;
-  final VoidCallback onTap;
+  final VoidCallback onPressed;
 
-  const _ThemeModeOption({
+  const _ProfileMenuItem({
     required this.icon,
     required this.title,
     required this.subtitle,
-    required this.selected,
-    required this.onTap,
+    required this.onPressed,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        onTap: onTap,
-        child: Container(
-          margin: const EdgeInsets.only(bottom: AppSpacing.md),
-          padding: const EdgeInsets.all(AppSpacing.md),
-          decoration: BoxDecoration(
-            color: Theme.of(context).cardTheme.color,
-            borderRadius: BorderRadius.circular(AppRadius.card),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.primary.withAlphaPercent(0.12),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, color: Theme.of(context).colorScheme.primary),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: AppCard(
+        pressable: true,
+        onPressed: onPressed,
+        padding: AppCardPadding.md,
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: AppColors.bgSurface2,
+                borderRadius: BorderRadius.circular(AppRadius.sm),
+                border: Border.all(color: AppColors.borderDefault),
               ),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title, style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.onSurface.withAlphaPercent(0.68),
-                      ),
+              child: Icon(icon, color: AppColors.textSecondary, size: 22),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.bodyStrong.copyWith(
+                      color: AppColors.textPrimary,
                     ),
-                  ],
-                ),
+                  ),
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.textMuted,
+                    ),
+                  ),
+                ],
               ),
-              if (selected)
-                Icon(
-                  Icons.check_circle,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-            ],
-          ),
+            ),
+            const Icon(Icons.chevron_right, color: AppColors.textMuted),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ThemeOption extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback onPressed;
+
+  const _ThemeOption({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: AppCard(
+        pressable: true,
+        onPressed: onPressed,
+        padding: AppCardPadding.md,
+        child: Row(
+          children: [
+            Icon(icon, color: AppColors.brandPrimary),
+            const SizedBox(width: AppSpacing.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: AppTypography.bodyStrong.copyWith(
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.textMuted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (selected)
+              const Icon(Icons.check_box, color: AppColors.brandPrimary),
+          ],
         ),
       ),
     );

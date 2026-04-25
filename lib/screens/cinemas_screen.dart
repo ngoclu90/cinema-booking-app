@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
-import '../mocks/mock_data.dart';
+import '../api/services/cinema_api.dart';
+import '../components/cinema/index.dart';
+import '../components/ui/index.dart';
+import '../design_system/tokens/index.dart';
+import '../layouts/app_shell/index.dart';
 import '../models/cinema.dart';
-import '../widgets/cinema_card.dart';
-import '../theme/design_tokens.dart';
 
 class CinemasScreen extends StatefulWidget {
   const CinemasScreen({super.key});
@@ -14,17 +15,57 @@ class CinemasScreen extends StatefulWidget {
 }
 
 class _CinemasScreenState extends State<CinemasScreen> {
+  final CinemaApi _cinemaApi = const CinemaApi();
+  final TextEditingController _searchController = TextEditingController();
+
+  bool _loading = true;
+  Object? _error;
   String _query = '';
+  List<Cinema> _cinemas = const <Cinema>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final response = await _cinemaApi.getCinemas();
+      if (!mounted) return;
+      setState(() {
+        _cinemas = response.data;
+        _loading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error;
+        _loading = false;
+      });
+    }
+  }
 
   List<Cinema> get _filteredCinemas {
-    if (_query.trim().isEmpty) return cinemas;
-    final normalizedQuery = _query.toLowerCase();
-    return cinemas
+    final normalized = _query.trim().toLowerCase();
+    if (normalized.isEmpty) return _cinemas;
+    return _cinemas
         .where(
           (cinema) =>
-              cinema.name.toLowerCase().contains(normalizedQuery) ||
-              cinema.address.toLowerCase().contains(normalizedQuery) ||
-              cinema.landmark.toLowerCase().contains(normalizedQuery),
+              cinema.name.toLowerCase().contains(normalized) ||
+              cinema.address.toLowerCase().contains(normalized) ||
+              cinema.landmark.toLowerCase().contains(normalized),
         )
         .toList(growable: false);
   }
@@ -32,58 +73,56 @@ class _CinemasScreenState extends State<CinemasScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.bgApp,
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: AppSpacing.md),
-              TextField(
-                decoration: const InputDecoration(
-                  hintText: 'Tìm rạp theo tên, địa chỉ...',
-                  prefixIcon: Padding(
-                    padding: EdgeInsets.only(left: 18, right: 12),
-                    child: FaIcon(FontAwesomeIcons.magnifyingGlass, size: 16),
-                  ),
-                ),
-                onChanged: (value) {
-                  setState(() {
-                    _query = value;
-                  });
-                },
-              ),
-              const SizedBox(height: AppSpacing.md),
-              Text(
-                '${_filteredCinemas.length} rạp',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withAlphaPercent(0.64),
-                ),
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              Expanded(
-                child: _filteredCinemas.isEmpty
-                    ? Center(
-                        child: Text(
-                          'Không tìm thấy rạp phù hợp.',
-                          style: Theme.of(context).textTheme.bodyLarge,
-                        ),
-                      )
-                    : ListView.builder(
-                        padding: EdgeInsets.zero,
-                        physics: const BouncingScrollPhysics(),
-                        itemCount: _filteredCinemas.length,
-                        itemBuilder: (_, index) {
-                          return CinemaCard(cinema: _filteredCinemas[index]);
-                        },
-                      ),
-              ),
-            ],
-          ),
+        bottom: false,
+        child: ScreenContainer(
+          title: 'Rạp',
+          subtitle: 'Tìm rạp và xem suất chiếu',
+          onRefresh: _load,
+          child: _buildContent(),
         ),
       ),
+    );
+  }
+
+  Widget _buildContent() {
+    if (_loading) {
+      return const AppSkeletonList(itemCount: 5);
+    }
+
+    if (_error != null) {
+      return AppErrorState(
+        title: 'Không tải được rạp',
+        message: 'Hãy thử lại để cập nhật cụm rạp gần bạn.',
+        onRetry: _load,
+      );
+    }
+
+    final items = _filteredCinemas;
+
+    return Column(
+      children: [
+        AppInput(
+          controller: _searchController,
+          placeholder: 'Tìm rạp theo tên, địa chỉ...',
+          leftIcon: const Icon(Icons.search),
+          onChanged: (value) => setState(() => _query = value),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        if (items.isEmpty)
+          const AppEmptyState(
+            title: 'Không tìm thấy rạp',
+            message: 'Thử đổi từ khóa hoặc kiểm tra lại sau.',
+          )
+        else
+          ...items.map(
+            (cinema) => Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.md),
+              child: CinemaCard(cinema: cinema),
+            ),
+          ),
+      ],
     );
   }
 }

@@ -4,7 +4,7 @@ import '../mocks/mock_data.dart';
 import '../models/app_account.dart';
 
 class AppController extends ChangeNotifier {
-  ThemeMode _themeMode = ThemeMode.system;
+  ThemeMode _themeMode = ThemeMode.dark;
   AppAccount? _currentAccount;
 
   ThemeMode get themeMode => _themeMode;
