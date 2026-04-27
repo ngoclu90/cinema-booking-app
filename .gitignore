@@ -43,3 +43,17 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+# iOS
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/App.framework
+ios/Flutter/Generated.xcconfig
+
+# macOS
+macos/Pods/
+macos/Flutter/Flutter.framework
+macos/Flutter/ephemeral/
+
+# Flutter generated
+**/GeneratedPluginRegistrant.*
