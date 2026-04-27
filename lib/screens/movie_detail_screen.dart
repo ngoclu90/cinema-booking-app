@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import '../theme/design_tokens.dart';
 import '../utils/app_notifier.dart';
 import '../widgets/accent_button.dart';
+import 'booking_screen.dart';
 
 class MovieDetailScreen extends StatelessWidget {
   final Movie movie;
@@ -291,11 +292,26 @@ class MovieDetailScreen extends StatelessWidget {
                                 color: Colors.white,
                               ),
                               onPressed: () {
-                                AppNotifier.success(
-                                  context,
-                                  title: 'Đã chọn suất chiếu',
-                                  description:
-                                      'Bạn có thể tiếp tục để chọn ghế và thanh toán.',
+                                final showtime = movie.showtimes.isNotEmpty
+                                    ? movie.showtimes.first
+                                    : null;
+                                if (showtime == null) {
+                                  AppNotifier.warning(
+                                    context,
+                                    title: 'Chưa có suất chiếu',
+                                    description:
+                                        'Phim này hiện chưa có suất chiếu khả dụng.',
+                                  );
+                                  return;
+                                }
+
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => BookingScreen(
+                                      movie: movie,
+                                      showtime: showtime,
+                                    ),
+                                  ),
                                 );
                               },
                             ),
