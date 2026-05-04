@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:go_router/go_router.dart';
 
 import '../mocks/mock_data.dart';
 import '../models/app_account.dart';
@@ -22,6 +23,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
   bool _hidePassword = true;
+  bool _isLoading = false;
 
   @override
   void dispose() {
@@ -30,40 +32,54 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final success = widget.controller.login(
-      _emailController.text,
-      _passwordController.text,
-    );
+    setState(() => _isLoading = true);
 
-    if (!success) {
-      AppNotifier.warning(
-        context,
-        title: 'Đăng nhập chưa đúng',
-        description: 'Vui lòng kiểm tra lại email hoặc mật khẩu.',
+    try {
+      // QUAN TRỌNG: Phải có await ở đây
+      final success = await widget.controller.login(
+        _emailController.text,
+        _passwordController.text,
       );
-      return;
-    }
 
-    AppNotifier.success(
-      context,
-      title: 'Đăng nhập thành công',
-      description: 'Chào mừng bạn quay lại Cinema Booking.',
-    );
+      if (!mounted) return;
+
+      if (!success) {
+        AppNotifier.warning(
+          context,
+          title: 'Đăng nhập chưa đúng',
+          description: 'Vui lòng kiểm tra lại email hoặc mật khẩu.',
+        );
+      } else {
+        AppNotifier.success(
+          context,
+          title: 'Đăng nhập thành công',
+          description: 'Chào mừng bạn quay lại Cinema Booking.',
+        );
+        context.go('/');
+      }
+    } catch (e) {
+      if (mounted) {
+        AppNotifier.error(
+          context,
+          title: 'Lỗi kết nối',
+          description: 'Không thể kết nối đến máy chủ Spring Boot.',
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   void _loginAsDemo(AppAccount account) {
+    if (_isLoading) return;
     _emailController.text = account.email;
     _passwordController.text = account.password;
-    widget.controller.loginAs(account);
-    AppNotifier.success(
-      context,
-      title: 'Đăng nhập thành công',
-      description:
-          'Bạn đang vào với vai trò ${account.roleLabel.toLowerCase()}.',
-    );
+    _submit();
   }
 
   @override
@@ -81,6 +97,7 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Header UI
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(AppSpacing.lg),
@@ -101,6 +118,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: Image.asset(
                         'assets/images/logo_cinema_mark.png',
                         fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const Icon(Icons.movie, color: Colors.white, size: 40),
                       ),
                     ),
                     const SizedBox(width: AppSpacing.md),
@@ -114,11 +132,12 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           const SizedBox(height: AppSpacing.xs),
                           Text(
-                            'Đăng nhập để vào ứng dụng với tài khoản nhân viên hoặc người dùng.',
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(
-                                  color: Theme.of(context).colorScheme.onSurface
-                                      .withAlphaPercent(0.72),
+                            'Đăng nhập để vào ứng dụng.',
+                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurface
+                                      .withAlpha(180),
                                 ),
                           ),
                         ],
@@ -128,6 +147,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
               const SizedBox(height: AppSpacing.lg),
+              
+              // Form
               Form(
                 key: _formKey,
                 child: Column(
@@ -135,6 +156,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     TextFormField(
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
+                      enabled: !_isLoading,
                       decoration: const InputDecoration(
                         labelText: 'Email',
                         hintText: 'Nhập email đăng nhập',
@@ -143,17 +165,13 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: FaIcon(FontAwesomeIcons.envelope, size: 16),
                         ),
                       ),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Vui lòng nhập email';
-                        }
-                        return null;
-                      },
+                      validator: (value) => (value == null || value.isEmpty) ? 'Vui lòng nhập email' : null,
                     ),
                     const SizedBox(height: AppSpacing.md),
                     TextFormField(
                       controller: _passwordController,
                       obscureText: _hidePassword,
+                      enabled: !_isLoading,
                       decoration: InputDecoration(
                         labelText: 'Mật khẩu',
                         hintText: 'Nhập mật khẩu',
@@ -162,40 +180,30 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: FaIcon(FontAwesomeIcons.lock, size: 16),
                         ),
                         suffixIcon: IconButton(
-                          onPressed: () {
-                            setState(() {
-                              _hidePassword = !_hidePassword;
-                            });
-                          },
+                          onPressed: () => setState(() => _hidePassword = !_hidePassword),
                           icon: Icon(
-                            _hidePassword
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
+                            _hidePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
                           ),
                         ),
                       ),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Vui lòng nhập mật khẩu';
-                        }
-                        return null;
-                      },
+                      validator: (value) => (value == null || value.isEmpty) ? 'Vui lòng nhập mật khẩu' : null,
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     SizedBox(
                       width: double.infinity,
+                      height: 54,
                       child: ElevatedButton.icon(
-                        onPressed: _submit,
-                        icon: const FaIcon(
-                          FontAwesomeIcons.arrowRightToBracket,
-                          size: 14,
-                        ),
-                        label: const Text('Đăng nhập'),
+                        onPressed: _isLoading ? null : _submit,
+                        icon: _isLoading 
+                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                          : const FaIcon(FontAwesomeIcons.arrowRightToBracket, size: 14),
+                        label: Text(_isLoading ? 'Đang xử lý...' : 'Đăng nhập'),
                       ),
                     ),
                   ],
                 ),
               ),
+              
               const SizedBox(height: AppSpacing.xl),
               Text(
                 'Tài khoản dùng thử',
@@ -206,6 +214,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 (account) => _DemoAccountCard(
                   account: account,
                   onLogin: () => _loginAsDemo(account),
+                  isEnabled: !_isLoading,
                 ),
               ),
             ],
@@ -219,8 +228,13 @@ class _LoginScreenState extends State<LoginScreen> {
 class _DemoAccountCard extends StatelessWidget {
   final AppAccount account;
   final VoidCallback onLogin;
+  final bool isEnabled;
 
-  const _DemoAccountCard({required this.account, required this.onLogin});
+  const _DemoAccountCard({
+    required this.account, 
+    required this.onLogin,
+    required this.isEnabled,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -232,60 +246,38 @@ class _DemoAccountCard extends StatelessWidget {
         color: AppTheme.surfaceLayer(context, level: 1),
         borderRadius: BorderRadius.circular(AppRadius.card),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.primary.withAlphaPercent(0.12),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(
-                  account.isStaff
-                      ? Icons.badge_outlined
-                      : Icons.person_outline_rounded,
-                  color: Theme.of(context).colorScheme.primary,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      account.roleLabel,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      account.roleTitle,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Theme.of(
-                          context,
-                        ).colorScheme.onSurface.withAlphaPercent(0.68),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              TextButton(onPressed: onLogin, child: const Text('Vào ngay')),
-            ],
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary.withAlpha(30),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              account.isStaff ? Icons.badge_outlined : Icons.person_outline_rounded,
+              color: Theme.of(context).colorScheme.primary,
+            ),
           ),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            'Email: ${account.email}',
-            style: Theme.of(context).textTheme.bodyMedium,
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(account.roleLabel, style: Theme.of(context).textTheme.titleMedium),
+                Text(
+                  account.email,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurface.withAlpha(150),
+                  ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            'Mật khẩu: ${account.password}',
-            style: Theme.of(context).textTheme.bodyMedium,
+          TextButton(
+            onPressed: isEnabled ? onLogin : null, 
+            child: const Text('Vào ngay'),
           ),
         ],
       ),
