@@ -40,7 +40,7 @@ class _AppRootScreenState extends State<AppRootScreen> {
   @override
   Widget build(BuildContext context) {
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 320),
+      duration: const Duration(milliseconds: 200),
       child: KeyedSubtree(
         key: ValueKey('$_showSplash-${widget.controller.isLoggedIn}'),
         child: _showSplash

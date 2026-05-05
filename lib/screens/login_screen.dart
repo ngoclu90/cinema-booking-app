@@ -118,7 +118,11 @@ class _LoginScreenState extends State<LoginScreen> {
                       child: Image.asset(
                         'assets/images/logo_cinema_mark.png',
                         fit: BoxFit.contain,
-                        errorBuilder: (_, __, ___) => const Icon(Icons.movie, color: Colors.white, size: 40),
+                        errorBuilder: (_, __, ___) => const Icon(
+                          Icons.movie,
+                          color: Colors.white,
+                          size: 40,
+                        ),
                       ),
                     ),
                     const SizedBox(width: AppSpacing.md),
@@ -133,11 +137,11 @@ class _LoginScreenState extends State<LoginScreen> {
                           const SizedBox(height: AppSpacing.xs),
                           Text(
                             'Đăng nhập để vào ứng dụng.',
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurface
-                                      .withAlpha(180),
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurface.withAlpha(180),
                                 ),
                           ),
                         ],
@@ -147,7 +151,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
               const SizedBox(height: AppSpacing.lg),
-              
+
               // Form
               Form(
                 key: _formKey,
@@ -165,7 +169,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: FaIcon(FontAwesomeIcons.envelope, size: 16),
                         ),
                       ),
-                      validator: (value) => (value == null || value.isEmpty) ? 'Vui lòng nhập email' : null,
+                      validator: (value) => (value == null || value.isEmpty)
+                          ? 'Vui lòng nhập email'
+                          : null,
                     ),
                     const SizedBox(height: AppSpacing.md),
                     TextFormField(
@@ -180,13 +186,18 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: FaIcon(FontAwesomeIcons.lock, size: 16),
                         ),
                         suffixIcon: IconButton(
-                          onPressed: () => setState(() => _hidePassword = !_hidePassword),
+                          onPressed: () =>
+                              setState(() => _hidePassword = !_hidePassword),
                           icon: Icon(
-                            _hidePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                            _hidePassword
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
                           ),
                         ),
                       ),
-                      validator: (value) => (value == null || value.isEmpty) ? 'Vui lòng nhập mật khẩu' : null,
+                      validator: (value) => (value == null || value.isEmpty)
+                          ? 'Vui lòng nhập mật khẩu'
+                          : null,
                     ),
                     const SizedBox(height: AppSpacing.lg),
                     SizedBox(
@@ -194,16 +205,25 @@ class _LoginScreenState extends State<LoginScreen> {
                       height: 54,
                       child: ElevatedButton.icon(
                         onPressed: _isLoading ? null : _submit,
-                        icon: _isLoading 
-                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                          : const FaIcon(FontAwesomeIcons.arrowRightToBracket, size: 14),
+                        icon: _isLoading
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const FaIcon(
+                                FontAwesomeIcons.arrowRightToBracket,
+                                size: 14,
+                              ),
                         label: Text(_isLoading ? 'Đang xử lý...' : 'Đăng nhập'),
                       ),
                     ),
                   ],
                 ),
               ),
-              
+
               const SizedBox(height: AppSpacing.xl),
               Text(
                 'Tài khoản dùng thử',
@@ -231,7 +251,7 @@ class _DemoAccountCard extends StatelessWidget {
   final bool isEnabled;
 
   const _DemoAccountCard({
-    required this.account, 
+    required this.account,
     required this.onLogin,
     required this.isEnabled,
   });
@@ -256,7 +276,9 @@ class _DemoAccountCard extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
-              account.isStaff ? Icons.badge_outlined : Icons.person_outline_rounded,
+              account.isStaff
+                  ? Icons.badge_outlined
+                  : Icons.person_outline_rounded,
               color: Theme.of(context).colorScheme.primary,
             ),
           ),
@@ -265,18 +287,23 @@ class _DemoAccountCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(account.roleLabel, style: Theme.of(context).textTheme.titleMedium),
+                Text(
+                  account.roleLabel,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
                 Text(
                   account.email,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurface.withAlpha(150),
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withAlpha(150),
                   ),
                 ),
               ],
             ),
           ),
           TextButton(
-            onPressed: isEnabled ? onLogin : null, 
+            onPressed: isEnabled ? onLogin : null,
             child: const Text('Vào ngay'),
           ),
         ],

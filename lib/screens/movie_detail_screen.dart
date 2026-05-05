@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
+import '../api/services/cinema_api.dart';
+import '../components/cinema/index.dart';
+import '../components/movie/index.dart';
+import '../components/ui/index.dart';
+import '../design_system/tokens/index.dart';
+import '../layouts/app_shell/index.dart';
+import '../models/cinema.dart';
 import '../models/movie.dart';
-import '../theme/app_theme.dart';
-import '../theme/design_tokens.dart';
+import '../models/showtime.dart';
 import '../utils/app_notifier.dart';
-import '../widgets/accent_button.dart';
+import 'seat_selection_screen.dart';
 
-class MovieDetailScreen extends StatelessWidget {
+class MovieDetailScreen extends StatefulWidget {
   final Movie movie;
   final String heroTag;
 
@@ -18,311 +23,314 @@ class MovieDetailScreen extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
+  State<MovieDetailScreen> createState() => _MovieDetailScreenState();
+}
+
+class _MovieDetailScreenState extends State<MovieDetailScreen> {
+  final CinemaApi _cinemaApi = const CinemaApi();
+  final List<String> _dateLabels = const ['Hôm nay', 'Ngày mai'];
+
+  bool _loadingCinemas = true;
+  Object? _cinemaError;
+  List<Cinema> _cinemas = const <Cinema>[];
+  int _selectedDateIndex = 0;
+  Showtime? _selectedShowtime;
+  Cinema? _selectedCinema;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedShowtime =
+        _showtimesFor(_dateLabels.first).firstOrNull ??
+        widget.movie.showtimes.firstOrNull;
+    _loadCinemas();
+  }
+
+  Future<void> _loadCinemas() async {
+    setState(() {
+      _loadingCinemas = true;
+      _cinemaError = null;
+    });
+
+    try {
+      final response = await _cinemaApi.getCinemas();
+      if (!mounted) return;
+      setState(() {
+        _cinemas = response.data;
+        _selectedCinema = response.data.firstOrNull;
+        _loadingCinemas = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _cinemaError = error;
+        _loadingCinemas = false;
+      });
+    }
+  }
+
+  List<Showtime> _showtimesFor(String dateLabel) {
+    final items = widget.movie.showtimes
+        .where((showtime) => showtime.dateLabel == dateLabel)
+        .toList(growable: false);
+    return items.isEmpty ? widget.movie.showtimes : items;
+  }
+
+  void _selectDate(int index) {
+    final showtimes = _showtimesFor(_dateLabels[index]);
+    setState(() {
+      _selectedDateIndex = index;
+      _selectedShowtime = showtimes.firstOrNull;
+    });
+  }
+
+  void _openSeatSelection() {
+    final showtime = _selectedShowtime;
+    final cinema = _selectedCinema;
+
+    if (showtime == null || cinema == null) {
+      AppNotifier.warning(
+        context,
+        title: 'Chưa chọn suất chiếu',
+        description: 'Hãy chọn rạp và suất chiếu trước khi chọn ghế.',
+      );
+      return;
+    }
+
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SeatSelectionScreen(
+          movie: widget.movie,
+          showtime: showtime,
+          cinema: cinema,
+        ),
       ),
-      body: Stack(
-        children: [
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  movie.accent,
-                  Color.lerp(movie.accent, Colors.black, 0.72)!,
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final movie = widget.movie;
+    return Scaffold(
+      backgroundColor: AppColors.bgApp,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            AppHeader(
+              title: 'Chi tiết phim',
+              subtitle: movie.status,
+              leading: AppHeaderIconButton(
+                icon: Icons.arrow_back,
+                label: 'Quay lại',
+                onPressed: () => Navigator.of(context).pop(),
               ),
-            ),
-            child: const SizedBox.expand(),
-          ),
-          Positioned(
-            top: 86,
-            right: -32,
-            child: Opacity(
-              opacity: 0.14,
-              child: Image.asset(
-                'assets/images/logo_cinema_mark.png',
-                width: 220,
-              ),
-            ),
-          ),
-          SingleChildScrollView(
-            physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.only(bottom: AppSpacing.xl),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 76),
-                Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.lg,
+              actions: [
+                AppHeaderIconButton(
+                  icon: Icons.notifications_outlined,
+                  label: 'Thông báo',
+                  onPressed: () => AppNotifier.info(
+                    context,
+                    title: 'Thông báo',
+                    description: 'Bạn sẽ nhận cập nhật khi phim có suất mới.',
                   ),
-                  child: Hero(
-                    tag: heroTag,
-                    child: Material(
-                      color: Colors.transparent,
-                      child: Container(
-                        width: double.infinity,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(AppRadius.hero),
-                          color: Colors.white.withAlphaPercent(0.12),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withAlphaPercent(0.18),
-                              blurRadius: 24,
-                              offset: const Offset(0, 12),
-                            ),
-                          ],
+                ),
+              ],
+            ),
+            Expanded(
+              child: RefreshIndicator(
+                color: AppColors.brandPrimary,
+                backgroundColor: AppColors.bgSurface,
+                onRefresh: _loadCinemas,
+                child: CustomScrollView(
+                  physics: const BouncingScrollPhysics(
+                    parent: AlwaysScrollableScrollPhysics(),
+                  ),
+                  slivers: [
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.lg,
+                          AppSpacing.lg,
+                          AppSpacing.lg,
+                          112,
                         ),
-                        padding: const EdgeInsets.all(AppSpacing.lg),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            _MovieOverview(
+                              movie: movie,
+                              heroTag: widget.heroTag,
+                            ),
+                            const SizedBox(height: AppSpacing.xxl),
                             Text(
-                              movie.title,
-                              style: Theme.of(context).textTheme.displaySmall
-                                  ?.copyWith(color: Colors.white),
+                              'Nội dung phim',
+                              style: AppTypography.subtitle.copyWith(
+                                color: AppColors.textPrimary,
+                              ),
                             ),
                             const SizedBox(height: AppSpacing.sm),
                             Text(
-                              movie.headline,
-                              style: Theme.of(context).textTheme.bodyLarge
-                                  ?.copyWith(
-                                    color: Colors.white.withAlphaPercent(0.82),
-                                  ),
+                              movie.description,
+                              style: AppTypography.body.copyWith(
+                                color: AppColors.textSecondary,
+                              ),
                             ),
                             const SizedBox(height: AppSpacing.md),
-                            Wrap(
-                              spacing: 10,
-                              runSpacing: 10,
-                              children: [
-                                _detailBadge(movie.duration),
-                                _detailBadge(
-                                  '${movie.rating.toStringAsFixed(1)}/10 đánh giá',
-                                ),
-                                _detailBadge(movie.language),
-                              ],
+                            AppButton(
+                              title: 'Xem trailer',
+                              variant: AppButtonVariant.secondary,
+                              leftIcon: const Icon(Icons.play_arrow),
+                              onPressed: () => AppNotifier.info(
+                                context,
+                                title: 'Trailer',
+                                description:
+                                    'Trailer sẽ được mở khi dữ liệu video sẵn sàng.',
+                              ),
                             ),
+                            const SizedBox(height: AppSpacing.xxl),
+                            const SectionHeader(
+                              title: 'Chọn ngày',
+                              subtitle: 'Suất chiếu được nhóm theo ngày.',
+                            ),
+                            const SizedBox(height: AppSpacing.md),
+                            _DateSelector(
+                              labels: _dateLabels,
+                              selectedIndex: _selectedDateIndex,
+                              onChanged: _selectDate,
+                            ),
+                            const SizedBox(height: AppSpacing.xxl),
+                            const SectionHeader(
+                              title: 'Rạp và suất chiếu',
+                              subtitle: 'Chọn rạp, sau đó chọn giờ chiếu.',
+                            ),
+                            const SizedBox(height: AppSpacing.md),
+                            _buildCinemaShowtimes(),
                           ],
                         ),
                       ),
                     ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      bottomNavigationBar: _StickyCta(
+        selectedShowtime: _selectedShowtime,
+        selectedCinema: _selectedCinema,
+        onPressed: _openSeatSelection,
+      ),
+    );
+  }
+
+  Widget _buildCinemaShowtimes() {
+    if (_loadingCinemas) {
+      return const AppSkeletonList(itemCount: 3);
+    }
+
+    if (_cinemaError != null) {
+      return AppErrorState(
+        title: 'Không tải được rạp',
+        message: 'Hãy thử lại để lấy danh sách rạp và suất chiếu.',
+        onRetry: _loadCinemas,
+      );
+    }
+
+    if (_cinemas.isEmpty || widget.movie.showtimes.isEmpty) {
+      return const AppEmptyState(
+        title: 'Chưa có suất chiếu',
+        message: 'Phim này hiện chưa mở bán vé tại rạp.',
+      );
+    }
+
+    final showtimes = _showtimesFor(_dateLabels[_selectedDateIndex]);
+    return Column(
+      children: _cinemas
+          .map(
+            (cinema) => Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.md),
+              child: CinemaCard(
+                cinema: cinema,
+                showtimes: showtimes,
+                selectedShowtime: _selectedCinema?.id == cinema.id
+                    ? _selectedShowtime
+                    : null,
+                onShowtimeSelected: (showtime) {
+                  setState(() {
+                    _selectedCinema = cinema;
+                    _selectedShowtime = showtime;
+                  });
+                },
+              ),
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+}
+
+class _MovieOverview extends StatelessWidget {
+  final Movie movie;
+  final String heroTag;
+
+  const _MovieOverview({required this.movie, required this.heroTag});
+
+  @override
+  Widget build(BuildContext context) {
+    return AppCard(
+      padding: AppCardPadding.md,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 132,
+            child: Hero(
+              tag: heroTag,
+              child: MoviePoster(movie: movie),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AppBadge(
+                  label: movie.detailLabel.isEmpty
+                      ? movie.status
+                      : movie.detailLabel,
+                  backgroundColor: AppColors.brandPrimarySoft,
+                  foregroundColor: AppColors.textPrimary,
+                  borderColor: AppColors.brandPrimary,
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  movie.title,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.title.copyWith(
+                    color: AppColors.textPrimary,
                   ),
                 ),
-                const SizedBox(height: AppSpacing.lg),
-                Container(
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).scaffoldBackgroundColor,
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(AppRadius.hero),
-                      topRight: Radius.circular(AppRadius.hero),
-                    ),
+                const SizedBox(height: AppSpacing.sm),
+                MovieMetaRow(movie: movie, compact: true),
+                const SizedBox(height: AppSpacing.md),
+                Text(
+                  movie.genre,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textSecondary,
                   ),
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.lg,
-                    AppSpacing.xl,
-                    AppSpacing.lg,
-                    AppSpacing.lg,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Wrap(
-                        spacing: AppSpacing.sm,
-                        runSpacing: AppSpacing.sm,
-                        children: [
-                          _InfoTile(
-                            label: 'Thể loại',
-                            value: movie.genre,
-                            icon: FontAwesomeIcons.film,
-                          ),
-                          _InfoTile(
-                            label: 'Đạo diễn',
-                            value: movie.director,
-                            icon: FontAwesomeIcons.circleInfo,
-                          ),
-                          _InfoTile(
-                            label: 'Khởi chiếu',
-                            value: movie.releaseDate,
-                            icon: FontAwesomeIcons.calendarDays,
-                          ),
-                          _InfoTile(
-                            label: 'Định dạng',
-                            value: movie.formats.join(' · '),
-                            icon: FontAwesomeIcons.ticket,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: AppSpacing.xl),
-                      Text(
-                        'Nội dung phim',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Text(
-                        movie.description,
-                        style: Theme.of(context).textTheme.bodyLarge,
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                      Text(
-                        'Điểm nhấn đặt vé',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 10,
-                        children: movie.tags
-                            .map(
-                              (tag) => Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: AppSpacing.sm,
-                                  vertical: AppSpacing.xs,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: AppTheme.surfaceLayer(
-                                    context,
-                                    level: 1,
-                                  ),
-                                  borderRadius: BorderRadius.circular(
-                                    AppRadius.pill,
-                                  ),
-                                ),
-                                child: Text(
-                                  tag,
-                                  style: Theme.of(context).textTheme.bodySmall
-                                      ?.copyWith(fontWeight: FontWeight.w700),
-                                ),
-                              ),
-                            )
-                            .toList(growable: false),
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                      Text(
-                        'Suất chiếu nhanh',
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 12,
-                        children: movie.showtimes
-                            .map(
-                              (showtime) => Container(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 14,
-                                  horizontal: 16,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: AppTheme.surfaceLayer(
-                                    context,
-                                    level: 1,
-                                  ),
-                                  borderRadius: BorderRadius.circular(
-                                    AppRadius.card,
-                                  ),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      showtime.time,
-                                      style: Theme.of(
-                                        context,
-                                      ).textTheme.titleLarge,
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      '${showtime.dateLabel} · ${showtime.screen} · ${showtime.price}',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodyMedium
-                                          ?.copyWith(
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .onSurface
-                                                .withAlphaPercent(0.7),
-                                          ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      '${showtime.format} · ${showtime.availability}',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall
-                                          ?.copyWith(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.primary,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            )
-                            .toList(),
-                      ),
-                      const SizedBox(height: AppSpacing.xl),
-                      Text(
-                        movie.bookingHint,
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withAlphaPercent(0.72),
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: AccentButton(
-                              label: 'Đặt vé',
-                              leading: const FaIcon(
-                                FontAwesomeIcons.ticket,
-                                size: 14,
-                                color: Colors.white,
-                              ),
-                              onPressed: () {
-                                AppNotifier.success(
-                                  context,
-                                  title: 'Đã chọn suất chiếu',
-                                  description:
-                                      'Bạn có thể tiếp tục để chọn ghế và thanh toán.',
-                                );
-                              },
-                            ),
-                          ),
-                          const SizedBox(width: AppSpacing.sm),
-                          Expanded(
-                            child: AccentButton(
-                              label: 'Chia sẻ',
-                              reversed: true,
-                              leading: FaIcon(
-                                FontAwesomeIcons.arrowUpFromBracket,
-                                size: 14,
-                                color: Theme.of(context).colorScheme.onSurface,
-                              ),
-                              onPressed: () {
-                                AppNotifier.info(
-                                  context,
-                                  title: 'Chia sẻ phim',
-                                  description:
-                                      'Bạn có thể chia sẻ phim này với bạn bè.',
-                                );
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  'Đạo diễn: ${movie.director}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textMuted,
                   ),
                 ),
               ],
@@ -332,61 +340,118 @@ class MovieDetailScreen extends StatelessWidget {
       ),
     );
   }
-
-  Widget _detailBadge(String label) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white24,
-        borderRadius: BorderRadius.circular(AppRadius.pill),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
 }
 
-class _InfoTile extends StatelessWidget {
-  final String label;
-  final String value;
-  final FaIconData icon;
+class _DateSelector extends StatelessWidget {
+  final List<String> labels;
+  final int selectedIndex;
+  final ValueChanged<int> onChanged;
 
-  const _InfoTile({
-    required this.label,
-    required this.value,
-    required this.icon,
+  const _DateSelector({
+    required this.labels,
+    required this.selectedIndex,
+    required this.onChanged,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 160,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceLayer(context, level: 1),
-        borderRadius: BorderRadius.circular(AppRadius.card),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          FaIcon(icon, size: 14, color: Theme.of(context).colorScheme.primary),
-          const SizedBox(height: AppSpacing.sm),
-          Text(
-            label,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(
-                context,
-              ).colorScheme.onSurface.withAlphaPercent(0.62),
+    return Row(
+      children: List.generate(labels.length, (index) {
+        final selected = selectedIndex == index;
+        return Expanded(
+          child: Padding(
+            padding: EdgeInsets.only(
+              right: index == labels.length - 1 ? 0 : AppSpacing.sm,
+            ),
+            child: SizedBox(
+              height: 44,
+              child: OutlinedButton(
+                onPressed: () => onChanged(index),
+                style: OutlinedButton.styleFrom(
+                  backgroundColor: selected
+                      ? AppColors.brandPrimary
+                      : AppColors.bgSurface2,
+                  side: BorderSide(
+                    color: selected
+                        ? AppColors.brandPrimary
+                        : AppColors.borderDefault,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                  ),
+                ),
+                child: Text(
+                  labels[index],
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.captionStrong.copyWith(
+                    color: selected
+                        ? AppColors.textPrimary
+                        : AppColors.textSecondary,
+                  ),
+                ),
+              ),
             ),
           ),
-          const SizedBox(height: AppSpacing.xs),
-          Text(value, style: Theme.of(context).textTheme.titleMedium),
-        ],
+        );
+      }),
+    );
+  }
+}
+
+class _StickyCta extends StatelessWidget {
+  final Showtime? selectedShowtime;
+  final Cinema? selectedCinema;
+  final VoidCallback onPressed;
+
+  const _StickyCta({
+    required this.selectedShowtime,
+    required this.selectedCinema,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final ready = selectedShowtime != null && selectedCinema != null;
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(
+          AppSpacing.lg,
+          AppSpacing.md,
+          AppSpacing.lg,
+          AppSpacing.md,
+        ),
+        decoration: const BoxDecoration(
+          color: AppColors.bgSurface,
+          border: Border(top: BorderSide(color: AppColors.borderDefault)),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                ready
+                    ? '${selectedShowtime!.time} · ${selectedCinema!.name}'
+                    : 'Chọn suất chiếu',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.captionStrong.copyWith(
+                  color: ready ? AppColors.textPrimary : AppColors.textMuted,
+                ),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            SizedBox(
+              width: 150,
+              child: AppButton(
+                title: 'Chọn ghế',
+                disabled: !ready,
+                rightIcon: const Icon(Icons.arrow_forward),
+                onPressed: onPressed,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
