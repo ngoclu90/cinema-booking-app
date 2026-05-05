@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../theme/app_theme.dart';
-import '../theme/design_tokens.dart';
+import '../components/ui/index.dart';
+import '../design_system/tokens/index.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -13,16 +13,16 @@ class SplashScreen extends StatefulWidget {
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
-  late final Animation<double> _scale;
+  late final Animation<double> _opacity;
 
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 900),
+      duration: const Duration(milliseconds: 220),
     );
-    _scale = CurvedAnimation(parent: _controller, curve: Curves.easeOutBack);
+    _opacity = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
     _controller.forward();
   }
 
@@ -34,113 +34,55 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
-    final isDark = context.isDarkMode;
     return Scaffold(
-      backgroundColor: isDark ? AppTheme.pureBlack : AppTheme.pureWhite,
-      body: Stack(
-        children: [
-          Positioned(
-            top: -140,
-            right: -90,
-            child: Container(
-              width: 280,
-              height: 280,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: AppTheme.brandRed.withAlphaPercent(isDark ? 0.16 : 0.09),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: -110,
-            left: -70,
-            child: Container(
-              width: 240,
-              height: 240,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withAlphaPercent(isDark ? 0.04 : 0.65),
-              ),
-            ),
-          ),
-          SafeArea(
-            child: Center(
-              child: ScaleTransition(
-                scale: _scale,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.xl,
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(AppSpacing.lg),
-                        decoration: BoxDecoration(
-                          color: AppTheme.surfaceLayer(context, level: 1),
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withAlphaPercent(
-                                isDark ? 0.36 : 0.10,
-                              ),
-                              blurRadius: 36,
-                              offset: const Offset(0, 18),
-                            ),
-                          ],
-                        ),
-                        child: Image.asset(
-                          'assets/images/logo_cinema_mark.png',
-                          width: 112,
-                          height: 112,
-                          fit: BoxFit.contain,
-                        ),
+      backgroundColor: AppColors.bgApp,
+      body: SafeArea(
+        child: Center(
+          child: FadeTransition(
+            opacity: _opacity,
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.lg),
+              child: AppCard(
+                padding: AppCardPadding.lg,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 92,
+                      height: 92,
+                      padding: const EdgeInsets.all(AppSpacing.md),
+                      decoration: BoxDecoration(
+                        color: AppColors.bgSurface2,
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        border: Border.all(color: AppColors.borderDefault),
                       ),
-                      const SizedBox(height: AppSpacing.lg),
-                      Text(
-                        'Cinema Booking',
-                        style: Theme.of(context).textTheme.displaySmall
-                            ?.copyWith(
-                              color: isDark ? Colors.white : Colors.black,
-                            ),
+                      child: Image.asset(
+                        'assets/images/logo_cinema_mark.png',
+                        fit: BoxFit.contain,
                       ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Text(
-                        'Chọn phim, giữ chỗ và vào rạp thật nhanh.',
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withAlphaPercent(0.72),
-                        ),
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    Text(
+                      'Cinema Booking',
+                      textAlign: TextAlign.center,
+                      style: AppTypography.title.copyWith(
+                        color: AppColors.textPrimary,
                       ),
-                      const SizedBox(height: AppSpacing.md),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: AppSpacing.md,
-                          vertical: AppSpacing.sm,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppTheme.surfaceLayer(context, level: 1),
-                          borderRadius: BorderRadius.circular(AppRadius.pill),
-                        ),
-                        child: Text(
-                          'Beta Two Cinemas',
-                          style: Theme.of(context).textTheme.labelLarge
-                              ?.copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurface.withAlphaPercent(0.72),
-                              ),
-                        ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      'Đặt vé nhanh. Chọn ghế rõ. Vào rạp gọn.',
+                      textAlign: TextAlign.center,
+                      style: AppTypography.body.copyWith(
+                        color: AppColors.textSecondary,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),
           ),
-        ],
+        ),
       ),
     );
   }

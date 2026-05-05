@@ -1,9 +1,11 @@
 import '../models/app_account.dart';
 import '../models/cinema.dart';
 import '../models/movie.dart';
+import '../models/news_item.dart';
 import '../models/profile.dart';
 import '../models/showtime.dart';
 import '../models/ticket.dart';
+import '../models/voucher.dart';
 
 /// Dữ liệu mẫu mô phỏng đúng cấu trúc phản hồi API.
 /// Giao diện đang đọc từ các payload này để sau đó đổi sang API thật dễ hơn.
@@ -261,6 +263,57 @@ final List<Map<String, dynamic>> ticketResponses = [
   },
 ];
 
+final List<Map<String, dynamic>> voucherResponses = [
+  {
+    'id': 'voucher-1',
+    'title': 'Combo cuối tuần giảm 30%',
+    'description': 'Áp dụng cho bắp nước khi đặt từ 2 vé trong khung giờ tối.',
+    'expiryLabel': 'Hết hạn 30/04/2026',
+    'category': 'Combo',
+    'code': 'WEEKEND30',
+    'imageUrl': '',
+  },
+  {
+    'id': 'voucher-2',
+    'title': 'Thứ Ba đồng giá 89k',
+    'description': 'Giữ ghế sớm cho các suất 2D trước 18:00 tại mọi cụm rạp.',
+    'expiryLabel': 'Hết hạn 15/05/2026',
+    'category': 'Vé phim',
+    'code': 'TUE89',
+    'imageUrl': '',
+  },
+  {
+    'id': 'voucher-3',
+    'title': 'Ưu đãi thành viên mới',
+    'description': 'Tặng voucher đồ uống khi hoàn tất đơn đặt vé đầu tiên.',
+    'expiryLabel': 'Hết hạn 31/05/2026',
+    'category': 'Thành viên',
+    'code': 'HELLOBETA',
+    'imageUrl': '',
+  },
+];
+
+final List<Map<String, dynamic>> newsResponses = [
+  {
+    'id': 'news-1',
+    'title': 'Mở bán sớm cụm suất IMAX tháng 5',
+    'description':
+        'Các bom tấn sắp chiếu đã có lịch đặt trước tại Beta Two Sài Gòn Center.',
+    'dateLabel': '25/04/2026',
+    'category': 'Tin hot',
+    'imageUrl': '',
+  },
+  {
+    'id': 'news-2',
+    'title': 'Beta Two Riverside sắp khai trương',
+    'description':
+        'Cụm rạp mới có phòng chiếu laser, khu gia đình và sảnh chờ rộng.',
+    'dateLabel': '22/04/2026',
+    'category': 'Rạp mới',
+    'imageUrl': '',
+  },
+];
+
 const List<Map<String, String>> homeMetrics = [
   {'value': '12', 'label': 'Rạp hoạt động'},
   {'value': '48', 'label': 'Suất tối nay'},
@@ -326,4 +379,12 @@ final List<Cinema> cinemas = List.unmodifiable(
 
 final List<Ticket> tickets = List.unmodifiable(
   ticketResponses.map((ticket) => Ticket.fromJson(ticket)),
+);
+
+final List<Voucher> vouchers = List.unmodifiable(
+  voucherResponses.map((voucher) => Voucher.fromJson(voucher)),
+);
+
+final List<NewsItem> newsItems = List.unmodifiable(
+  newsResponses.map((item) => NewsItem.fromJson(item)),
 );

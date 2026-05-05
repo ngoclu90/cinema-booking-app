@@ -15,6 +15,8 @@ class Movie {
   final String language;
   final String releaseDate;
   final String bookingHint;
+  final String posterUrl;
+  final String backdropUrl;
   final int accentValue;
   final List<String> tags;
   final List<String> formats;
@@ -36,6 +38,8 @@ class Movie {
     required this.language,
     required this.releaseDate,
     required this.bookingHint,
+    required this.posterUrl,
+    required this.backdropUrl,
     required this.accentValue,
     required this.tags,
     required this.formats,
@@ -57,6 +61,8 @@ class Movie {
       language: json['language']?.toString() ?? '',
       releaseDate: json['releaseDate']?.toString() ?? '',
       bookingHint: json['bookingHint']?.toString() ?? '',
+      posterUrl: json['posterUrl']?.toString() ?? '',
+      backdropUrl: json['backdropUrl']?.toString() ?? '',
       accentValue: (json['accentValue'] as num?)?.toInt() ?? 0xFFE12636,
       tags: _stringList(json['tags']),
       formats: _stringList(json['formats']),
@@ -84,6 +90,8 @@ class Movie {
       'language': language,
       'releaseDate': releaseDate,
       'bookingHint': bookingHint,
+      'posterUrl': posterUrl,
+      'backdropUrl': backdropUrl,
       'accentValue': accentValue,
       'tags': tags,
       'formats': formats,
