@@ -5,7 +5,6 @@ import '../../design_system/tokens/index.dart';
 class BottomNavItem {
   final String label;
   final IconData icon;
-
   const BottomNavItem({required this.label, required this.icon});
 }
 
