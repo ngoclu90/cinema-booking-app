@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:go_router/go_router.dart';
 
-import '../components/ui/index.dart';
-import '../design_system/tokens/index.dart';
 import '../mocks/mock_data.dart';
 import '../models/app_account.dart';
 import '../state/app_controller.dart';
+import '../theme/app_theme.dart';
+import '../theme/design_tokens.dart';
 import '../utils/app_notifier.dart';
-
-enum _AuthMode { login, register, forgot }
 
 class LoginScreen extends StatefulWidget {
   final AppController controller;
@@ -19,454 +19,293 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-  final TextEditingController _emailController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _nameController = TextEditingController();
-
-  _AuthMode _mode = _AuthMode.login;
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
   bool _hidePassword = true;
-  bool _loading = false;
+  bool _isLoading = false;
 
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
-    _nameController.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _loading = true);
-    await Future<void>.delayed(const Duration(milliseconds: 180));
-    if (!mounted) return;
-    setState(() => _loading = false);
+    setState(() => _isLoading = true);
 
-    switch (_mode) {
-      case _AuthMode.login:
-        _login();
-      case _AuthMode.register:
+    try {
+      // QUAN TRỌNG: Phải có await ở đây
+      final success = await widget.controller.login(
+        _emailController.text,
+        _passwordController.text,
+      );
+
+      if (!mounted) return;
+
+      if (!success) {
+        AppNotifier.warning(
+          context,
+          title: 'Đăng nhập chưa đúng',
+          description: 'Vui lòng kiểm tra lại email hoặc mật khẩu.',
+        );
+      } else {
         AppNotifier.success(
           context,
-          title: 'Đăng ký sẵn sàng',
-          description: 'Form đăng ký đã đồng bộ UI và chờ nối API.',
+          title: 'Đăng nhập thành công',
+          description: 'Chào mừng bạn quay lại Cinema Booking.',
         );
-      case _AuthMode.forgot:
-        AppNotifier.info(
+        context.go('/');
+      }
+    } catch (e) {
+      if (mounted) {
+        AppNotifier.error(
           context,
-          title: 'Đã gửi hướng dẫn',
-          description:
-              'Nếu email tồn tại, bạn sẽ nhận được hướng dẫn đặt lại mật khẩu.',
+          title: 'Lỗi kết nối',
+          description: 'Không thể kết nối đến máy chủ Spring Boot.',
         );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
-  }
-
-  void _login() {
-    final success = widget.controller.login(
-      _emailController.text,
-      _passwordController.text,
-    );
-
-    if (!success) {
-      AppNotifier.warning(
-        context,
-        title: 'Đăng nhập chưa đúng',
-        description: 'Vui lòng kiểm tra email hoặc mật khẩu.',
-      );
-      return;
-    }
-
-    AppNotifier.success(
-      context,
-      title: 'Đăng nhập thành công',
-      description: 'Chào mừng bạn quay lại Cinema Booking.',
-    );
   }
 
   void _loginAsDemo(AppAccount account) {
+    if (_isLoading) return;
     _emailController.text = account.email;
     _passwordController.text = account.password;
-    widget.controller.loginAs(account);
-    AppNotifier.success(
-      context,
-      title: 'Đăng nhập thành công',
-      description:
-          'Bạn đang dùng tài khoản ${account.roleLabel.toLowerCase()}.',
-    );
-  }
-
-  void _setMode(_AuthMode mode) {
-    setState(() {
-      _mode = mode;
-      _formKey.currentState?.reset();
-    });
+    _submit();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.bgApp,
       body: SafeArea(
-        child: CustomScrollView(
+        child: SingleChildScrollView(
           physics: const BouncingScrollPhysics(),
-          slivers: [
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.lg,
-                  AppSpacing.xxl,
-                  AppSpacing.lg,
-                  AppSpacing.xxl,
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.md,
+            AppSpacing.lg,
+            AppSpacing.md,
+            AppSpacing.xl,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header UI
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(AppSpacing.lg),
+                decoration: BoxDecoration(
+                  color: AppTheme.surfaceLayer(context, level: 1),
+                  borderRadius: BorderRadius.circular(AppRadius.hero),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
                   children: [
-                    _BrandPanel(mode: _mode),
-                    const SizedBox(height: AppSpacing.xxl),
-                    _ModeTabs(mode: _mode, onChanged: _setMode),
-                    const SizedBox(height: AppSpacing.lg),
-                    Form(
-                      key: _formKey,
-                      child: _AuthForm(
-                        mode: _mode,
-                        emailController: _emailController,
-                        passwordController: _passwordController,
-                        nameController: _nameController,
-                        hidePassword: _hidePassword,
-                        onTogglePassword: () =>
-                            setState(() => _hidePassword = !_hidePassword),
+                    Container(
+                      width: 76,
+                      height: 76,
+                      padding: const EdgeInsets.all(AppSpacing.sm),
+                      decoration: BoxDecoration(
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(AppRadius.card),
+                      ),
+                      child: Image.asset(
+                        'assets/images/logo_cinema_mark.png',
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const Icon(
+                          Icons.movie,
+                          color: Colors.white,
+                          size: 40,
+                        ),
                       ),
                     ),
-                    const SizedBox(height: AppSpacing.lg),
-                    AppButton(
-                      title: _buttonLabel,
-                      loading: _loading,
-                      leftIcon: Icon(_buttonIcon),
-                      onPressed: _submit,
-                    ),
-                    if (_mode == _AuthMode.login) ...[
-                      const SizedBox(height: AppSpacing.xxl),
-                      const SectionHeader(
-                        title: 'Tài khoản dùng thử',
-                        subtitle: 'Dùng để kiểm tra flow customer hiện tại.',
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Cinema Booking',
+                            style: Theme.of(context).textTheme.headlineMedium,
+                          ),
+                          const SizedBox(height: AppSpacing.xs),
+                          Text(
+                            'Đăng nhập để vào ứng dụng.',
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurface.withAlpha(180),
+                                ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: AppSpacing.md),
-                      ...demoAccounts.map(
-                        (account) => Padding(
-                          padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                          child: _DemoAccountCard(
-                            account: account,
-                            onPressed: () => _loginAsDemo(account),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+
+              // Form
+              Form(
+                key: _formKey,
+                child: Column(
+                  children: [
+                    TextFormField(
+                      controller: _emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      enabled: !_isLoading,
+                      decoration: const InputDecoration(
+                        labelText: 'Email',
+                        hintText: 'Nhập email đăng nhập',
+                        prefixIcon: Padding(
+                          padding: EdgeInsets.only(left: 18, right: 12),
+                          child: FaIcon(FontAwesomeIcons.envelope, size: 16),
+                        ),
+                      ),
+                      validator: (value) => (value == null || value.isEmpty)
+                          ? 'Vui lòng nhập email'
+                          : null,
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    TextFormField(
+                      controller: _passwordController,
+                      obscureText: _hidePassword,
+                      enabled: !_isLoading,
+                      decoration: InputDecoration(
+                        labelText: 'Mật khẩu',
+                        hintText: 'Nhập mật khẩu',
+                        prefixIcon: const Padding(
+                          padding: EdgeInsets.only(left: 18, right: 12),
+                          child: FaIcon(FontAwesomeIcons.lock, size: 16),
+                        ),
+                        suffixIcon: IconButton(
+                          onPressed: () =>
+                              setState(() => _hidePassword = !_hidePassword),
+                          icon: Icon(
+                            _hidePassword
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
                           ),
                         ),
                       ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String get _buttonLabel {
-    return switch (_mode) {
-      _AuthMode.login => 'Đăng nhập',
-      _AuthMode.register => 'Đăng ký',
-      _AuthMode.forgot => 'Gửi hướng dẫn',
-    };
-  }
-
-  IconData get _buttonIcon {
-    return switch (_mode) {
-      _AuthMode.login => Icons.login,
-      _AuthMode.register => Icons.person_add_alt_1,
-      _AuthMode.forgot => Icons.mark_email_read_outlined,
-    };
-  }
-}
-
-class _BrandPanel extends StatelessWidget {
-  final _AuthMode mode;
-
-  const _BrandPanel({required this.mode});
-
-  @override
-  Widget build(BuildContext context) {
-    return AppCard(
-      padding: AppCardPadding.lg,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 64,
-                height: 64,
-                padding: const EdgeInsets.all(AppSpacing.sm),
-                decoration: BoxDecoration(
-                  color: AppColors.bgApp,
-                  borderRadius: BorderRadius.circular(AppRadius.md),
-                  border: Border.all(color: AppColors.borderDefault),
-                ),
-                child: Image.asset(
-                  'assets/images/logo_cinema_mark.png',
-                  fit: BoxFit.contain,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Cinema Booking',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.title.copyWith(
-                        color: AppColors.textPrimary,
-                      ),
+                      validator: (value) => (value == null || value.isEmpty)
+                          ? 'Vui lòng nhập mật khẩu'
+                          : null,
                     ),
-                    const SizedBox(height: AppSpacing.xs),
-                    Text(
-                      _subtitle,
-                      style: AppTypography.caption.copyWith(
-                        color: AppColors.textSecondary,
+                    const SizedBox(height: AppSpacing.lg),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 54,
+                      child: ElevatedButton.icon(
+                        onPressed: _isLoading ? null : _submit,
+                        icon: _isLoading
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const FaIcon(
+                                FontAwesomeIcons.arrowRightToBracket,
+                                size: 14,
+                              ),
+                        label: Text(_isLoading ? 'Đang xử lý...' : 'Đăng nhập'),
                       ),
                     ),
                   ],
+                ),
+              ),
+
+              const SizedBox(height: AppSpacing.xl),
+              Text(
+                'Tài khoản dùng thử',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              ...demoAccounts.map(
+                (account) => _DemoAccountCard(
+                  account: account,
+                  onLogin: () => _loginAsDemo(account),
+                  isEnabled: !_isLoading,
                 ),
               ),
             ],
           ),
-        ],
-      ),
-    );
-  }
-
-  String get _subtitle {
-    return switch (mode) {
-      _AuthMode.login => 'Đăng nhập để đặt vé, lưu voucher và xem vé của bạn.',
-      _AuthMode.register => 'Tạo tài khoản khách hàng để bắt đầu đặt vé.',
-      _AuthMode.forgot => 'Khôi phục tài khoản bằng email đã đăng ký.',
-    };
-  }
-}
-
-class _ModeTabs extends StatelessWidget {
-  final _AuthMode mode;
-  final ValueChanged<_AuthMode> onChanged;
-
-  const _ModeTabs({required this.mode, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        _ModeButton(
-          label: 'Đăng nhập',
-          selected: mode == _AuthMode.login,
-          onPressed: () => onChanged(_AuthMode.login),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        _ModeButton(
-          label: 'Đăng ký',
-          selected: mode == _AuthMode.register,
-          onPressed: () => onChanged(_AuthMode.register),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        _ModeButton(
-          label: 'Quên mật khẩu',
-          selected: mode == _AuthMode.forgot,
-          onPressed: () => onChanged(_AuthMode.forgot),
-        ),
-      ],
-    );
-  }
-}
-
-class _ModeButton extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onPressed;
-
-  const _ModeButton({
-    required this.label,
-    required this.selected,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: SizedBox(
-        height: 44,
-        child: OutlinedButton(
-          onPressed: onPressed,
-          style: OutlinedButton.styleFrom(
-            backgroundColor: selected
-                ? AppColors.brandPrimary
-                : AppColors.bgSurface2,
-            side: BorderSide(
-              color: selected
-                  ? AppColors.brandPrimary
-                  : AppColors.borderDefault,
-            ),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(AppRadius.sm),
-            ),
-          ),
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTypography.captionStrong.copyWith(
-              color: selected ? AppColors.textPrimary : AppColors.textSecondary,
-            ),
-          ),
         ),
       ),
-    );
-  }
-}
-
-class _AuthForm extends StatelessWidget {
-  final _AuthMode mode;
-  final TextEditingController emailController;
-  final TextEditingController passwordController;
-  final TextEditingController nameController;
-  final bool hidePassword;
-  final VoidCallback onTogglePassword;
-
-  const _AuthForm({
-    required this.mode,
-    required this.emailController,
-    required this.passwordController,
-    required this.nameController,
-    required this.hidePassword,
-    required this.onTogglePassword,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        if (mode == _AuthMode.register) ...[
-          AppInput(
-            controller: nameController,
-            placeholder: 'Họ và tên',
-            leftIcon: const Icon(Icons.person_outline),
-            validator: (value) {
-              if (value == null || value.trim().isEmpty) {
-                return 'Vui lòng nhập họ tên';
-              }
-              return null;
-            },
-          ),
-          const SizedBox(height: AppSpacing.md),
-        ],
-        AppInput(
-          controller: emailController,
-          placeholder: 'Email',
-          keyboardType: TextInputType.emailAddress,
-          leftIcon: const Icon(Icons.mail_outline),
-          validator: (value) {
-            if (value == null || value.trim().isEmpty) {
-              return 'Vui lòng nhập email';
-            }
-            if (!value.contains('@')) {
-              return 'Email chưa hợp lệ';
-            }
-            return null;
-          },
-        ),
-        if (mode != _AuthMode.forgot) ...[
-          const SizedBox(height: AppSpacing.md),
-          AppInput(
-            controller: passwordController,
-            placeholder: 'Mật khẩu',
-            secureTextEntry: hidePassword,
-            leftIcon: const Icon(Icons.lock_outline),
-            rightIcon: IconButton(
-              tooltip: hidePassword ? 'Hiện mật khẩu' : 'Ẩn mật khẩu',
-              onPressed: onTogglePassword,
-              icon: Icon(
-                hidePassword
-                    ? Icons.visibility_outlined
-                    : Icons.visibility_off_outlined,
-              ),
-            ),
-            validator: (value) {
-              if (value == null || value.trim().isEmpty) {
-                return 'Vui lòng nhập mật khẩu';
-              }
-              if (value.trim().length < 6) {
-                return 'Mật khẩu tối thiểu 6 ký tự';
-              }
-              return null;
-            },
-          ),
-        ],
-      ],
     );
   }
 }
 
 class _DemoAccountCard extends StatelessWidget {
   final AppAccount account;
-  final VoidCallback onPressed;
+  final VoidCallback onLogin;
+  final bool isEnabled;
 
-  const _DemoAccountCard({required this.account, required this.onPressed});
+  const _DemoAccountCard({
+    required this.account,
+    required this.onLogin,
+    required this.isEnabled,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return AppCard(
-      pressable: true,
-      onPressed: onPressed,
-      padding: AppCardPadding.md,
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: AppSpacing.md),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppTheme.surfaceLayer(context, level: 1),
+        borderRadius: BorderRadius.circular(AppRadius.card),
+      ),
       child: Row(
         children: [
           Container(
-            width: 44,
-            height: 44,
+            width: 42,
+            height: 42,
             decoration: BoxDecoration(
-              color: AppColors.brandPrimarySoft,
-              borderRadius: BorderRadius.circular(AppRadius.sm),
-              border: Border.all(color: AppColors.brandPrimary),
+              color: Theme.of(context).colorScheme.primary.withAlpha(30),
+              borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
-              account.isStaff ? Icons.badge_outlined : Icons.person_outline,
-              color: AppColors.brandPrimary,
+              account.isStaff
+                  ? Icons.badge_outlined
+                  : Icons.person_outline_rounded,
+              color: Theme.of(context).colorScheme.primary,
             ),
           ),
-          const SizedBox(width: AppSpacing.md),
+          const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   account.roleLabel,
-                  style: AppTypography.bodyStrong.copyWith(
-                    color: AppColors.textPrimary,
-                  ),
+                  style: Theme.of(context).textTheme.titleMedium,
                 ),
-                const SizedBox(height: AppSpacing.xs),
                 Text(
                   account.email,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.caption.copyWith(
-                    color: AppColors.textSecondary,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withAlpha(150),
                   ),
                 ),
               ],
             ),
           ),
-          const Icon(Icons.arrow_forward, color: AppColors.textMuted),
+          TextButton(
+            onPressed: isEnabled ? onLogin : null,
+            child: const Text('Vào ngay'),
+          ),
         ],
       ),
     );

@@ -41,6 +41,19 @@ class AppNotifier {
     );
   }
 
+  static void error(
+    BuildContext context, {
+    required String title,
+    required String description,
+  }) {
+    _show(
+      context,
+      title: title,
+      description: description,
+      type: ToastificationType.error,
+    );
+  }
+
   static void _show(
     BuildContext context, {
     required String title,
