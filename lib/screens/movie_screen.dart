@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-
 import '../api/services/movie_api.dart';
 import '../components/movie/index.dart';
 import '../components/ui/index.dart';
@@ -9,8 +8,14 @@ import '../models/movie.dart';
 
 enum _MovieFilter { nowPlaying, comingSoon, popular }
 
+/*
+ * Màn hình MovieScreen:
+ * Quản lý danh sách toàn bộ phim được lấy từ hệ thống thông qua MovieApi.
+ * Hỗ trợ các tính năng tìm kiếm động theo từ khóa, lọc phim theo trạng thái
+ * (Đang chiếu, Sắp chiếu, Phổ biến) và hiển thị dưới dạng lưới Grid mượt mà.
+ */
 class MovieScreen extends StatefulWidget {
-  final void Function(Movie movie, String heroTag) onMovieTap;
+  final void Function(MoviePublicDto movie, String heroTag) onMovieTap;
 
   const MovieScreen({super.key, required this.onMovieTap});
 
@@ -18,6 +23,11 @@ class MovieScreen extends StatefulWidget {
   State<MovieScreen> createState() => _MovieScreenState();
 }
 
+/*
+ * Trạng thái của MovieScreen:
+ * Xử lý các thao tác tương tác dữ liệu như kích hoạt thanh tìm kiếm, chuyển đổi bộ lọc Tab,
+ * và thực hiện tính toán bộ lọc cục bộ (Local Filtering) trên tập dữ liệu phim tải về để tối ưu hiệu năng.
+ */
 class _MovieScreenState extends State<MovieScreen>
     with AutomaticKeepAliveClientMixin<MovieScreen> {
   final MovieApi _movieApi = const MovieApi();
@@ -27,7 +37,7 @@ class _MovieScreenState extends State<MovieScreen>
   Object? _error;
   String _query = '';
   _MovieFilter _filter = _MovieFilter.nowPlaying;
-  List<Movie> _allMovies = const <Movie>[];
+  List<MoviePublicDto> _allMovies = const <MoviePublicDto>[];
 
   @override
   bool get wantKeepAlive => true;
@@ -66,27 +76,31 @@ class _MovieScreenState extends State<MovieScreen>
     }
   }
 
-  List<Movie> get _filteredMovies {
-    Iterable<Movie> source = switch (_filter) {
+  List<MoviePublicDto> get _filteredMovies {
+    Iterable<MoviePublicDto> source = switch (_filter) {
       _MovieFilter.nowPlaying => _allMovies.where(
-        (movie) => movie.status == 'Đang chiếu',
+            (movie) =>
+        movie.status == 'Đang chiếu' ||
+            movie.status?.toUpperCase() == 'NOW_SHOWING',
       ),
       _MovieFilter.comingSoon => _allMovies.where(
-        (movie) => movie.status == 'Sắp chiếu',
+            (movie) =>
+        movie.status == 'Sắp chiếu' ||
+            movie.status?.toUpperCase() == 'COMING_SOON',
       ),
-      _MovieFilter.popular =>
-        _allMovies.toList()..sort((a, b) => b.rating.compareTo(a.rating)),
+      _MovieFilter.popular => _allMovies.toList()
+        ..sort(
+              (a, b) => (b.releaseDate ?? DateTime(0))
+              .compareTo(a.releaseDate ?? DateTime(0)),
+        ),
     };
 
     final normalizedQuery = _query.trim().toLowerCase();
     if (normalizedQuery.isNotEmpty) {
       source = source.where(
-        (movie) =>
-            movie.title.toLowerCase().contains(normalizedQuery) ||
-            movie.genre.toLowerCase().contains(normalizedQuery) ||
-            movie.tags.any(
-              (tag) => tag.toLowerCase().contains(normalizedQuery),
-            ),
+            (movie) =>
+        movie.title.toLowerCase().contains(normalizedQuery) ||
+            (movie.genre?.toLowerCase().contains(normalizedQuery) ?? false),
       );
     }
 
@@ -159,10 +173,10 @@ class _MovieScreenState extends State<MovieScreen>
           rightIcon: _query.isEmpty
               ? null
               : IconButton(
-                  tooltip: 'Xóa tìm kiếm',
-                  onPressed: _clearSearch,
-                  icon: const Icon(Icons.close),
-                ),
+            tooltip: 'Xóa tìm kiếm',
+            onPressed: _clearSearch,
+            icon: const Icon(Icons.close),
+          ),
           onChanged: (value) => setState(() => _query = value),
         ),
         const SizedBox(height: AppSpacing.md),
@@ -209,6 +223,10 @@ class _MovieScreenState extends State<MovieScreen>
   }
 }
 
+/*
+ * Component _FilterTabs:
+ * Thanh điều hướng chứa 3 tab trạng thái lọc chính của màn hình danh sách phim.
+ */
 class _FilterTabs extends StatelessWidget {
   final _MovieFilter selected;
   final ValueChanged<_MovieFilter> onChanged;
@@ -232,7 +250,7 @@ class _FilterTabs extends StatelessWidget {
         ),
         const SizedBox(width: AppSpacing.sm),
         _FilterTab(
-          label: 'Phổ biến',
+          label: 'Mới nhất',
           selected: selected == _MovieFilter.popular,
           onPressed: () => onChanged(_MovieFilter.popular),
         ),
@@ -241,6 +259,10 @@ class _FilterTabs extends StatelessWidget {
   }
 }
 
+/*
+ * Component _FilterTab:
+ * Widget nút bấm đơn giản cấu hình trạng thái bật/tắt (selected) trực quan với màu sắc thương hiệu.
+ */
 class _FilterTab extends StatelessWidget {
   final String label;
   final bool selected;

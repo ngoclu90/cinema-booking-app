@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-
 import '../api/services/booking_api.dart';
 import '../components/booking/index.dart';
 import '../components/ui/index.dart';
@@ -10,8 +9,13 @@ import '../models/movie.dart';
 import '../models/showtime.dart';
 import '../utils/app_notifier.dart';
 
+/*
+ * Màn hình SeatSelectionScreen:
+ * Quản lý trực quan sơ đồ phòng chiếu, cho phép người dùng lựa chọn ghế trống (Normal hoặc VIP).
+ * Tích hợp tính năng giữ ghế (hold seats) thông qua BookingApi trước khi chuyển sang bước tiếp theo.
+ */
 class SeatSelectionScreen extends StatefulWidget {
-  final Movie movie;
+  final MoviePublicDto movie;
   final Showtime showtime;
   final Cinema cinema;
 
@@ -26,6 +30,11 @@ class SeatSelectionScreen extends StatefulWidget {
   State<SeatSelectionScreen> createState() => _SeatSelectionScreenState();
 }
 
+/*
+ * Trạng thái của SeatSelectionScreen:
+ * Thiết lập sơ đồ phòng chiếu (blueprint) tĩnh, quản lý danh sách ghế đã được đặt và ghế đang chọn.
+ * Tính toán trực tiếp đơn giá vé theo loại ghế và điều phối API giữ ghế bất đồng bộ.
+ */
 class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
   static const List<List<String?>> _seatBlueprint = [
     ['A1', 'A2', 'A3', 'A4', null, 'A5', 'A6', 'A7', 'A8'],
@@ -157,7 +166,7 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
       context,
       title: 'Đã giữ ghế',
       description:
-          '${widget.movie.title} · ${_selectedSeatLabels.join(', ')} sẵn sàng thanh toán.',
+      '${widget.movie.title} · ${_selectedSeatLabels.join(', ')} sẵn sàng thanh toán.',
     );
   }
 
@@ -211,11 +220,11 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
       ),
       bottomNavigationBar: !_loading && _error == null && _hasAvailableSeat
           ? BookingFooter(
-              selectedSeats: _selectedSeatLabels,
-              totalPrice: _formatPrice(_totalPrice),
-              fallbackPrice: widget.showtime.price,
-              onContinue: _holding ? () {} : _completeSelection,
-            )
+        selectedSeats: _selectedSeatLabels,
+        totalPrice: _formatPrice(_totalPrice),
+        fallbackPrice: widget.showtime.price,
+        onContinue: _holding ? () {} : _completeSelection,
+      )
           : null,
     );
   }
@@ -285,8 +294,13 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
   }
 }
 
+/*
+ * Component _BookingSummary:
+ * Thẻ hiển thị tóm tắt thông tin của vé đang đặt bao gồm Tiêu đề phim, Cụm rạp chiếu,
+ * Ngày chiếu, Giờ chiếu, Phòng chiếu và Đơn giá gốc.
+ */
 class _BookingSummary extends StatelessWidget {
-  final Movie movie;
+  final MoviePublicDto movie;
   final Showtime showtime;
   final Cinema cinema;
 
@@ -346,6 +360,10 @@ class _BookingSummary extends StatelessWidget {
   }
 }
 
+/*
+ * Component _ScreenIndicator:
+ * Thanh định hướng giả lập vị trí màn hình chiếu phim thực tế để người dùng dễ dàng căn chỉnh hướng ngồi trước khi chọn ghế.
+ */
 class _ScreenIndicator extends StatelessWidget {
   const _ScreenIndicator();
 

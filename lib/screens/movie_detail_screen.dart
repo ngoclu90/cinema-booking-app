@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-
-import '../api/services/cinema_api.dart';
 import '../components/cinema/index.dart';
 import '../components/movie/index.dart';
 import '../components/ui/index.dart';
@@ -12,8 +10,14 @@ import '../models/showtime.dart';
 import '../utils/app_notifier.dart';
 import 'seat_selection_screen.dart';
 
+/*
+ * Màn hình MovieDetailScreen:
+ * Hiển thị chi tiết bộ phim dựa trên dữ liệu thật từ MoviePublicDto.
+ * Toàn bộ phần rạp chiếu (Cinemas) và lịch chiếu (Showtimes) được giả lập nội bộ hoàn toàn bằng dữ liệu Mock,
+ * giúp giao diện hoạt động độc lập mượt mà trước khi hệ thống Backend tích hợp xong các đầu API rạp chiếu.
+ */
 class MovieDetailScreen extends StatefulWidget {
-  final Movie movie;
+  final MoviePublicDto movie;
   final String heroTag;
 
   const MovieDetailScreen({
@@ -26,12 +30,74 @@ class MovieDetailScreen extends StatefulWidget {
   State<MovieDetailScreen> createState() => _MovieDetailScreenState();
 }
 
+/*
+ * Trạng thái của MovieDetailScreen:
+ * Quản lý trạng thái hiển thị giao diện chi tiết phim.
+ * Chứa dữ liệu rạp chiếu và lịch chiếu giả lập cục bộ để phục vụ cho luồng chọn ghế.
+ * Sử dụng hiệu ứng trễ (delayed) khi tải rạp chiếu để giả lập trải nghiệm tải dữ liệu mạng thật.
+ */
 class _MovieDetailScreenState extends State<MovieDetailScreen> {
-  final CinemaApi _cinemaApi = const CinemaApi();
   final List<String> _dateLabels = const ['Hôm nay', 'Ngày mai'];
 
+  final List<Showtime> _mockShowtimes = const [
+    Showtime(
+      id: 'show-1',
+      time: '10:10',
+      screen: 'Phòng 01',
+      price: '120.000đ',
+      availability: 'Còn nhiều chỗ',
+      format: '2D',
+      language: 'Phụ đề',
+      dateLabel: 'Hôm nay',
+    ),
+    Showtime(
+      id: 'show-2',
+      time: '13:40',
+      screen: 'Phòng 03',
+      price: '150.000đ',
+      availability: 'Sắp hết chỗ',
+      format: 'IMAX',
+      language: 'Lồng tiếng',
+      dateLabel: 'Hôm nay',
+    ),
+    Showtime(
+      id: 'show-3',
+      time: '18:20',
+      screen: 'Phòng 05',
+      price: '170.000đ',
+      availability: 'Đặt nhanh',
+      format: '4DX',
+      language: 'Phụ đề',
+      dateLabel: 'Ngày mai',
+    ),
+    Showtime(
+      id: 'show-4',
+      time: '20:45',
+      screen: 'Phòng 02',
+      price: '190.000đ',
+      availability: 'Giờ vàng',
+      format: 'Premium',
+      language: 'Phụ đề',
+      dateLabel: 'Ngày mai',
+    ),
+  ];
+
+  final List<Map<String, dynamic>> _mockCinemasRaw = const [
+    {
+      'id': 'beta-sai-gon-center',
+      'name': 'Beta Two Sài Gòn Center',
+      'address': '65 Lê Lợi, Quận 1, TP.HCM',
+      'status': 'Đang mở cửa',
+    },
+    {
+      'id': 'beta-east-hub',
+      'name': 'Beta Two East Hub',
+      'address': '12 Nguyễn Thị Minh Khai, Quận 3, TP.HCM',
+      'status': 'Đang mở cửa',
+    }
+  ];
+
   bool _loadingCinemas = true;
-  Object? _cinemaError;
   List<Cinema> _cinemas = const <Cinema>[];
   int _selectedDateIndex = 0;
   Showtime? _selectedShowtime;
@@ -40,40 +106,34 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _selectedShowtime =
-        _showtimesFor(_dateLabels.first).firstOrNull ??
-        widget.movie.showtimes.firstOrNull;
+    _selectedShowtime = _showtimesFor(_dateLabels.first).firstOrNull;
     _loadCinemas();
   }
 
   Future<void> _loadCinemas() async {
     setState(() {
       _loadingCinemas = true;
-      _cinemaError = null;
     });
 
-    try {
-      final response = await _cinemaApi.getCinemas();
-      if (!mounted) return;
-      setState(() {
-        _cinemas = response.data;
-        _selectedCinema = response.data.firstOrNull;
-        _loadingCinemas = false;
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _cinemaError = error;
-        _loadingCinemas = false;
-      });
-    }
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+
+    final parsedCinemas = _mockCinemasRaw
+        .map((data) => Cinema.fromJson(data))
+        .toList();
+
+    if (!mounted) return;
+    setState(() {
+      _cinemas = parsedCinemas;
+      _selectedCinema = parsedCinemas.firstOrNull;
+      _loadingCinemas = false;
+    });
   }
 
   List<Showtime> _showtimesFor(String dateLabel) {
-    final items = widget.movie.showtimes
+    final items = _mockShowtimes
         .where((showtime) => showtime.dateLabel == dateLabel)
         .toList(growable: false);
-    return items.isEmpty ? widget.movie.showtimes : items;
+    return items.isEmpty ? _mockShowtimes : items;
   }
 
   void _selectDate(int index) {
@@ -171,7 +231,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                             ),
                             const SizedBox(height: AppSpacing.sm),
                             Text(
-                              movie.description,
+                              movie.description ?? 'Đang cập nhật nội dung...',
                               style: AppTypography.body.copyWith(
                                 color: AppColors.textSecondary,
                               ),
@@ -185,7 +245,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                 context,
                                 title: 'Trailer',
                                 description:
-                                    'Trailer sẽ được mở khi dữ liệu video sẵn sàng.',
+                                'Trailer sẽ được mở khi dữ liệu video sẵn sàng.',
                               ),
                             ),
                             const SizedBox(height: AppSpacing.xxl),
@@ -230,15 +290,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       return const AppSkeletonList(itemCount: 3);
     }
 
-    if (_cinemaError != null) {
-      return AppErrorState(
-        title: 'Không tải được rạp',
-        message: 'Hãy thử lại để lấy danh sách rạp và suất chiếu.',
-        onRetry: _loadCinemas,
-      );
-    }
-
-    if (_cinemas.isEmpty || widget.movie.showtimes.isEmpty) {
+    if (_cinemas.isEmpty) {
       return const AppEmptyState(
         title: 'Chưa có suất chiếu',
         message: 'Phim này hiện chưa mở bán vé tại rạp.',
@@ -250,29 +302,33 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       children: _cinemas
           .map(
             (cinema) => Padding(
-              padding: const EdgeInsets.only(bottom: AppSpacing.md),
-              child: CinemaCard(
-                cinema: cinema,
-                showtimes: showtimes,
-                selectedShowtime: _selectedCinema?.id == cinema.id
-                    ? _selectedShowtime
-                    : null,
-                onShowtimeSelected: (showtime) {
-                  setState(() {
-                    _selectedCinema = cinema;
-                    _selectedShowtime = showtime;
-                  });
-                },
-              ),
-            ),
-          )
+          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+          child: CinemaCard(
+            cinema: cinema,
+            showtimes: showtimes,
+            selectedShowtime: _selectedCinema?.id == cinema.id
+                ? _selectedShowtime
+                : null,
+            onShowtimeSelected: (showtime) {
+              setState(() {
+                _selectedCinema = cinema;
+                _selectedShowtime = showtime;
+              });
+            },
+          ),
+        ),
+      )
           .toList(growable: false),
     );
   }
 }
 
+/*
+ * Component _MovieOverview:
+ * Hiển thị tóm tắt thông tin phim bao gồm Poster, Tiêu đề, Badge Trạng thái, các thông số Meta phụ và tên Đạo diễn.
+ */
 class _MovieOverview extends StatelessWidget {
-  final Movie movie;
+  final MoviePublicDto movie;
   final String heroTag;
 
   const _MovieOverview({required this.movie, required this.heroTag});
@@ -296,14 +352,13 @@ class _MovieOverview extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                AppBadge(
-                  label: movie.detailLabel.isEmpty
-                      ? movie.status
-                      : movie.detailLabel,
-                  backgroundColor: AppColors.brandPrimarySoft,
-                  foregroundColor: AppColors.textPrimary,
-                  borderColor: AppColors.brandPrimary,
-                ),
+                if (movie.status != null && movie.status!.isNotEmpty)
+                  AppBadge(
+                    label: movie.status!,
+                    backgroundColor: AppColors.brandPrimarySoft,
+                    foregroundColor: AppColors.textPrimary,
+                    borderColor: AppColors.brandPrimary,
+                  ),
                 const SizedBox(height: AppSpacing.sm),
                 Text(
                   movie.title,
@@ -317,22 +372,24 @@ class _MovieOverview extends StatelessWidget {
                 MovieMetaRow(movie: movie, compact: true),
                 const SizedBox(height: AppSpacing.md),
                 Text(
-                  movie.genre,
+                  movie.genre ?? 'N/A',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: AppTypography.caption.copyWith(
                     color: AppColors.textSecondary,
                   ),
                 ),
-                const SizedBox(height: AppSpacing.sm),
-                Text(
-                  'Đạo diễn: ${movie.director}',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.caption.copyWith(
-                    color: AppColors.textMuted,
+                if (movie.director != null && movie.director!.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    'Đạo diễn: ${movie.director}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.caption.copyWith(
+                      color: AppColors.textMuted,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -342,6 +399,10 @@ class _MovieOverview extends StatelessWidget {
   }
 }
 
+/*
+ * Component _DateSelector:
+ * Khối ngang hiển thị danh sách các ngày chiếu phim hỗ trợ người dùng chuyển đổi nhanh.
+ */
 class _DateSelector extends StatelessWidget {
   final List<String> labels;
   final int selectedIndex;
@@ -399,6 +460,10 @@ class _DateSelector extends StatelessWidget {
   }
 }
 
+/*
+ * Component _StickyCta:
+ * Thanh điều hướng đính kèm ở dưới cùng màn hình hiển thị tóm lược thông tin suất chiếu đã chọn và nút chọn ghế.
+ */
 class _StickyCta extends StatelessWidget {
   final Showtime? selectedShowtime;
   final Cinema? selectedCinema;
