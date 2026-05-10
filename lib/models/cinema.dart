@@ -12,6 +12,7 @@ class Cinema {
   final String operatingHours;
   final int accentValue;
   final List<String> facilities;
+  final String? imageUrl;
 
   Color get accent => Color(accentValue);
 
@@ -27,6 +28,7 @@ class Cinema {
     required this.operatingHours,
     required this.accentValue,
     required this.facilities,
+    this.imageUrl,
   });
 
   factory Cinema.fromJson(Map<String, dynamic> json) {
@@ -44,6 +46,7 @@ class Cinema {
       facilities: (json['facilities'] as List<dynamic>? ?? const [])
           .map((item) => item.toString())
           .toList(growable: false),
+      imageUrl: json['imageUrl']?.toString(),
     );
   }
 
@@ -60,6 +63,7 @@ class Cinema {
       'operatingHours': operatingHours,
       'accentValue': accentValue,
       'facilities': facilities,
+      'imageUrl': imageUrl,
     };
   }
 }

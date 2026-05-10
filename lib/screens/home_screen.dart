@@ -1,24 +1,22 @@
 import 'package:flutter/material.dart';
 import '../api/services/cinema_api.dart';
-import '../api/services/movie_api.dart';
 import '../api/services/voucher_api.dart';
+import '../components/movie/movie_card/movie_card.dart';
+import '../data/services/movie_service.dart';
 import '../components/cinema/index.dart';
-import '../components/movie/index.dart';
 import '../components/ui/index.dart';
 import '../components/voucher/index.dart';
 import '../design_system/tokens/index.dart';
 import '../layouts/app_shell/index.dart';
 import '../models/cinema.dart';
 import '../models/movie.dart';
+import '../models/movie_card.dart';
 import '../models/news_item.dart';
 import '../models/voucher.dart';
 import '../api/payload/api_response.dart';
+import '../mocks/mock_home_movies.dart';
+import '../utils/image_helper.dart'; // Đã thêm import
 
-/*
- * Màn hình HomeScreen:
- * Trang chủ chính của ứng dụng quản lý việc gọi song song các API từ hệ thống.
- * Tích hợp cơ chế kéo để làm mới (Pull-to-refresh) và giữ lại trạng thái màn hình (AutomaticKeepAliveClientMixin).
- */
 class HomeScreen extends StatefulWidget {
   final void Function(MoviePublicDto movie, String heroTag) onMovieTap;
   final VoidCallback? onBrowseRequested;
@@ -37,22 +35,17 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-/*
- * Trạng thái của HomeScreen:
- * Khởi tạo trực tiếp các thực thể API Service không sử dụng hằng số 'const'.
- * Thực hiện ép kiểu tường minh dữ liệu trả về từ luồng xử lý bất đồng bộ tập trung Future.wait.
- */
 class _HomeScreenState extends State<HomeScreen>
     with AutomaticKeepAliveClientMixin<HomeScreen> {
-  final MovieApi _movieApi = MovieApi();
+  final MovieService _movieService = MovieService();
   final CinemaApi _cinemaApi = CinemaApi();
   final VoucherApi _voucherApi = VoucherApi();
 
   bool _loading = true;
   Object? _error;
-  List<MoviePublicDto> _featured = const <MoviePublicDto>[];
-  List<MoviePublicDto> _nowPlaying = const <MoviePublicDto>[];
-  List<MoviePublicDto> _comingSoon = const <MoviePublicDto>[];
+
+  List<MovieCardDto> _nowPlaying = const <MovieCardDto>[];
+  List<MovieCardDto> _comingSoon = const <MovieCardDto>[];
   List<Cinema> _cinemas = const <Cinema>[];
   List<Voucher> _vouchers = const <Voucher>[];
   List<NewsItem> _news = const <NewsItem>[];
@@ -74,9 +67,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     try {
       final responses = await Future.wait([
-        _movieApi.getFeaturedMovies(),
-        _movieApi.getNowPlayingMovies(),
-        _movieApi.getComingSoonMovies(),
+        _movieService.getMoviesByStatus(),
         _cinemaApi.getCinemas(),
         _voucherApi.getVouchers(),
         _voucherApi.getNews(),
@@ -84,26 +75,34 @@ class _HomeScreenState extends State<HomeScreen>
 
       if (!mounted) return;
 
-      final featuredRes = responses[0] as ApiResponse<List<MoviePublicDto>>;
-      final nowPlayingRes = responses[1] as ApiResponse<List<MoviePublicDto>>;
-      final comingSoonRes = responses[2] as ApiResponse<List<MoviePublicDto>>;
-      final cinemasRes = responses[3] as ApiResponse<List<Cinema>>;
-      final vouchersRes = responses[4] as ApiResponse<List<Voucher>>;
-      final newsRes = responses[5] as ApiResponse<List<NewsItem>>;
+      final movieStatusRes = responses[0] as ApiResponse<List<MovieCardDto>>?;
+      final cinemasRes = responses[1] as ApiResponse<List<Cinema>>;
+      final vouchersRes = responses[2] as ApiResponse<List<Voucher>>;
+      final newsRes = responses[3] as ApiResponse<List<NewsItem>>;
+
+      final List<MovieCardDto> allMovies = (movieStatusRes != null && movieStatusRes.data != null && movieStatusRes.data!.isNotEmpty)
+          ? movieStatusRes.data!
+          : getMockHomeMovies();
 
       setState(() {
-        _featured = featuredRes.data ?? const <MoviePublicDto>[];
-        _nowPlaying = nowPlayingRes.data ?? const <MoviePublicDto>[];
-        _comingSoon = comingSoonRes.data ?? const <MoviePublicDto>[];
+        _nowPlaying = allMovies.where((m) => m.status == 'NOW_SHOWING' || m.status == 'Đang chiếu').toList();
+        _comingSoon = allMovies.where((m) => m.status == 'COMING_SOON' || m.status == 'Sắp chiếu').toList();
         _cinemas = cinemasRes.data ?? const <Cinema>[];
         _vouchers = vouchersRes.data ?? const <Voucher>[];
         _news = newsRes.data ?? const <NewsItem>[];
         _loading = false;
       });
     } catch (error) {
+      print('Home screen load error: $error');
       if (!mounted) return;
+
+      final mockMovies = getMockHomeMovies();
       setState(() {
-        _error = error;
+        _nowPlaying = mockMovies.where((m) => m.status == 'NOW_SHOWING' || m.status == 'Đang chiếu').toList();
+        _comingSoon = mockMovies.where((m) => m.status == 'COMING_SOON' || m.status == 'Sắp chiếu').toList();
+        _cinemas = const <Cinema>[];
+        _vouchers = const <Voucher>[];
+        _news = const <NewsItem>[];
         _loading = false;
       });
     }
@@ -156,8 +155,7 @@ class _HomeScreenState extends State<HomeScreen>
     }
 
     final hasContent =
-        _featured.isNotEmpty ||
-            _nowPlaying.isNotEmpty ||
+        _nowPlaying.isNotEmpty ||
             _comingSoon.isNotEmpty ||
             _vouchers.isNotEmpty ||
             _cinemas.isNotEmpty;
@@ -172,21 +170,16 @@ class _HomeScreenState extends State<HomeScreen>
       );
     }
 
-    final heroMovie = _featured.isNotEmpty
-        ? _featured.first
-        : _nowPlaying.first;
+    final heroMovie = _nowPlaying.isNotEmpty ? _nowPlaying.first : _comingSoon.first;
 
     return Column(
       key: const ValueKey('home-content'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        HeroMovieCard(
+        _HeroMovieCard(
           movie: heroMovie,
           heroTag: 'home-hero-${heroMovie.id}',
-          onPressed: () =>
-              widget.onMovieTap(heroMovie, 'home-hero-${heroMovie.id}'),
-          onBookPressed: () =>
-              widget.onMovieTap(heroMovie, 'home-hero-${heroMovie.id}'),
+          onPressed: () => widget.onMovieTap(heroMovie.toPublicDto(), 'home-hero-${heroMovie.id}'),
         ),
         const SizedBox(height: AppSpacing.lg),
         _QuickActions(
@@ -276,10 +269,6 @@ class _HomeScreenState extends State<HomeScreen>
   }
 }
 
-/*
- * Component _QuickActions:
- * Hiển thị một hàng ngang chứa 3 nút truy cập nhanh: Phim, Voucher, Vé đã mua.
- */
 class _QuickActions extends StatelessWidget {
   final VoidCallback? onMovies;
   final VoidCallback? onVouchers;
@@ -313,10 +302,6 @@ class _QuickActions extends StatelessWidget {
   }
 }
 
-/*
- * Component _QuickAction:
- * Ô lựa chọn đơn lẻ nằm trong hàng ngang QuickActions với hiệu ứng hover và bo góc đồng bộ.
- */
 class _QuickAction extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -350,12 +335,8 @@ class _QuickAction extends StatelessWidget {
   }
 }
 
-/*
- * Component _HorizontalMovies:
- * Danh sách hiển thị danh sách phim theo chiều ngang có hỗ trợ scroll kéo thả mượt mà.
- */
 class _HorizontalMovies extends StatelessWidget {
-  final List<MoviePublicDto> movies;
+  final List<MovieCardDto> movies;
   final String tagPrefix;
   final void Function(MoviePublicDto movie, String heroTag) onMovieTap;
 
@@ -386,13 +367,276 @@ class _HorizontalMovies extends StatelessWidget {
           final tag = '$tagPrefix-${movie.id}';
           return SizedBox(
             width: 156,
-            child: MovieCard(
+            child: HomeMovieCard(
               movie: movie,
               heroTag: tag,
-              onPressed: () => onMovieTap(movie, tag),
+              onPressed: () => onMovieTap(movie.toPublicDto(), tag),
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _HeroMovieCard extends StatelessWidget {
+  final MovieCardDto movie;
+  final String heroTag;
+  final VoidCallback onPressed;
+
+  const _HeroMovieCard({
+    required this.movie,
+    required this.heroTag,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isNowShowing = movie.status == 'NOW_SHOWING' || movie.status == 'Đang chiếu';
+
+    return AppCard(
+      padding: AppCardPadding.md,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 120,
+            height: 180,
+            child: Hero(
+              tag: heroTag,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                child: Image.network(
+                  ImageHelper.getCorrectImageUrl(movie.posterUrl),
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => Container(
+                    color: AppColors.bgSurface3,
+                    child: const Icon(Icons.movie_filter_outlined, color: AppColors.textMuted),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AppBadge(
+                  label: isNowShowing ? 'ĐANG CHIẾU' : 'SẮP CHIẾU',
+                  backgroundColor: AppColors.brandPrimarySoft,
+                  foregroundColor: AppColors.brandPrimary,
+                  borderColor: AppColors.brandPrimary,
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Text(
+                  movie.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.subtitle.copyWith(
+                    fontWeight: FontWeight.bold,
+                    height: 1.2,
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.xs),
+                Text(
+                  'Hành trình sử thi tiếp theo đầy kịch tính.',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.caption.copyWith(color: AppColors.textMuted),
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                _buildInfoRow(Icons.access_time_outlined, movie.durationFormatted),
+                const SizedBox(height: AppSpacing.xs),
+                _buildInfoRow(Icons.video_camera_back_outlined, 'IMAX 2D'),
+                const SizedBox(height: AppSpacing.xs),
+                _buildInfoRow(Icons.subtitles_outlined, 'Tiếng Anh (Phụ đề Việt)'),
+                const SizedBox(height: AppSpacing.md),
+                SizedBox(
+                  width: double.infinity,
+                  height: 38,
+                  child: AppButton(
+                    title: 'Đặt vé ngay',
+                    onPressed: onPressed,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(IconData icon, String label) {
+    return Row(
+      children: [
+        Icon(icon, size: 14, color: AppColors.textMuted),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTypography.caption.copyWith(color: AppColors.textSecondary),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class HomeMovieCard extends StatelessWidget {
+  final MovieCardDto movie;
+  final String heroTag;
+  final VoidCallback onPressed;
+
+  const HomeMovieCard({
+    super.key,
+    required this.movie,
+    required this.heroTag,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isNowShowing = movie.status == 'NOW_SHOWING' || movie.status == 'Đang chiếu';
+    final isComingSoon = movie.status == 'COMING_SOON' || movie.status == 'Sắp chiếu';
+
+    return GestureDetector(
+      onTap: onPressed,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              child: Container(
+                width: double.infinity,
+                color: AppColors.bgSurface2,
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: Hero(
+                        tag: heroTag,
+                        child: _buildPoster(),
+                      ),
+                    ),
+                    if (isNowShowing || isComingSoon)
+                      Positioned(
+                        top: AppSpacing.sm,
+                        left: AppSpacing.sm,
+                        child: _buildBadge(isNowShowing),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          SizedBox(
+            height: 42,
+            child: Text(
+              movie.title.toUpperCase(),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: AppTypography.bodyStrong.copyWith(
+                color: AppColors.textPrimary,
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                height: 1.3,
+                letterSpacing: 0.3,
+              ),
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Row(
+            children: [
+              const Icon(
+                Icons.access_time_rounded,
+                size: 14,
+                color: AppColors.textMuted,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  movie.durationFormatted,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.textMuted,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBadge(bool isNowShowing) {
+    final badgeColor = isNowShowing ? const Color(0xFFFF1E27) : const Color(0xFF1A1A1A);
+    final borderColor = isNowShowing ? const Color(0xFFFF5252) : const Color(0xFFFF1E27);
+    final textColor = isNowShowing ? Colors.white : const Color(0xFFFF1E27);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: badgeColor,
+        borderRadius: BorderRadius.circular(AppRadius.xs),
+        border: Border.all(color: borderColor, width: 1.5),
+        boxShadow: isNowShowing
+            ? [
+          BoxShadow(
+            color: const Color(0xFFFF1E27).withOpacity(0.55),
+            blurRadius: 10,
+            spreadRadius: 1,
+          ),
+        ]
+            : null,
+      ),
+      child: Text(
+        isNowShowing ? 'ĐANG CHIẾU' : 'SẮP CHIẾU',
+        style: TextStyle(
+          color: textColor,
+          fontSize: 9.5,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 0.8,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPoster() {
+    final url = ImageHelper.getCorrectImageUrl(movie.posterUrl);
+    return Image.network(
+      url,
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => _buildPlaceholder(),
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        return const Center(
+          child: SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPlaceholder() {
+    return Container(
+      color: AppColors.bgSurface3,
+      child: const Center(
+        child: Icon(
+          Icons.image_not_supported_outlined,
+          size: 32,
+          color: AppColors.textMuted,
+        ),
       ),
     );
   }

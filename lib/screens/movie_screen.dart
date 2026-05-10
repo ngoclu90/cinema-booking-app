@@ -1,18 +1,14 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../data/services/movie_service.dart';
 import '../components/ui/index.dart';
 import '../design_system/tokens/index.dart';
 import '../layouts/app_shell/index.dart';
 import '../models/movie.dart';
+import '../utils/image_helper.dart';
 
 enum _MovieFilter { nowPlaying, comingSoon, popular }
 
-/*
- * Màn hình MovieScreen:
- * Quản lý danh sách toàn bộ phim được lấy từ hệ thống thông qua MovieService (API thật).
- * Tích hợp sẵn thành phần MovieCard bên trong để tối ưu hóa cấu trúc tệp tin.
- * Hỗ trợ tìm kiếm động và lọc nhanh theo 3 trạng thái: Đang chiếu, Sắp chiếu và Phổ biến.
- */
 class MovieScreen extends StatefulWidget {
   final void Function(MoviePublicDto movie, String heroTag) onMovieTap;
 
@@ -28,10 +24,28 @@ class _MovieScreenState extends State<MovieScreen>
   final TextEditingController _searchController = TextEditingController();
 
   bool _loading = true;
+  bool _loadingMore = false;
   Object? _error;
+
+  int _currentPage = 1;
+  final int _perPage = 10;
+  bool _hasMore = true;
+  List<MoviePublicDto> _movies = [];
+
   String _query = '';
   _MovieFilter _filter = _MovieFilter.nowPlaying;
-  List<MoviePublicDto> _allMovies = const <MoviePublicDto>[];
+  bool _showFilters = false;
+  String? _selectedGenre;
+  Timer? _searchDebounce;
+
+  final List<Map<String, String>> _genres = [
+    {'value': 'ACTION', 'label': 'Hành động'},
+    {'value': 'COMEDY', 'label': 'Hài kịch'},
+    {'value': 'HORROR', 'label': 'Kinh dị'},
+    {'value': 'SCI_FI', 'label': 'Viễn tưởng'},
+    {'value': 'ROMANCE', 'label': 'Lãng mạn'},
+    {'value': 'DRAMA', 'label': 'Chính kịch'},
+  ];
 
   @override
   bool get wantKeepAlive => true;
@@ -39,26 +53,55 @@ class _MovieScreenState extends State<MovieScreen>
   @override
   void initState() {
     super.initState();
-    _load();
+    _loadFirstPage();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _searchDebounce?.cancel();
     super.dispose();
   }
 
-  Future<void> _load() async {
+  String? get _apiStatusParam {
+    return switch (_filter) {
+      _MovieFilter.nowPlaying => 'NOW_SHOWING',
+      _MovieFilter.comingSoon => 'COMING_SOON',
+      _MovieFilter.popular => null,
+    };
+  }
+
+  Future<void> _loadFirstPage() async {
+    if (!mounted) return;
     setState(() {
       _loading = true;
       _error = null;
+      _currentPage = 1;
+      _hasMore = true;
+      _movies = [];
     });
 
     try {
-      final response = await _movieService.getAllMovie();
+      final response = await _movieService.getAllMovie(
+        page: _currentPage,
+        perPage: _perPage,
+        title: _query.isNotEmpty ? _query : null,
+        genre: _selectedGenre,
+        status: _apiStatusParam,
+      );
+
       if (!mounted) return;
+
+      final fetchedMovies = response?.data ?? [];
+
       setState(() {
-        _allMovies = response?.data ?? const <MoviePublicDto>[];
+        _movies = fetchedMovies;
+        _hasMore = fetchedMovies.length >= _perPage;
+
+        if (_filter == _MovieFilter.popular) {
+          _movies.sort((a, b) => b.id.compareTo(a.id));
+        }
+
         _loading = false;
       });
     } catch (error) {
@@ -70,56 +113,88 @@ class _MovieScreenState extends State<MovieScreen>
     }
   }
 
-  /*
-   * Bộ lọc dữ liệu phim cải tiến:
-   * Đã thay thế tiêu chí sắp xếp rating bị lỗi bằng sắp xếp theo ID lớn nhất (phim mới nhất).
-   */
-  List<MoviePublicDto> get _filteredMovies {
-    Iterable<MoviePublicDto> source = switch (_filter) {
-      _MovieFilter.nowPlaying => _allMovies.where(
-            (movie) =>
-        movie.status == 'Đang chiếu' ||
-            movie.status?.toUpperCase() == 'NOW_SHOWING',
-      ),
-      _MovieFilter.comingSoon => _allMovies.where(
-            (movie) =>
-        movie.status == 'Sắp chiếu' ||
-            movie.status?.toUpperCase() == 'COMING_SOON',
-      ),
-      _MovieFilter.popular => _allMovies.toList()
-        ..sort((a, b) => b.id.compareTo(a.id)), // Tạm thời sắp xếp theo ID giảm dần để làm tiêu chuẩn phổ biến
-    };
+  Future<void> _loadMore() async {
+    if (_loadingMore || !_hasMore) return;
 
-    final normalizedQuery = _query.trim().toLowerCase();
-    if (normalizedQuery.isNotEmpty) {
-      source = source.where(
-            (movie) =>
-        movie.title.toLowerCase().contains(normalizedQuery) ||
-            (movie.genre?.toLowerCase().contains(normalizedQuery) ?? false),
+    setState(() {
+      _loadingMore = true;
+    });
+
+    try {
+      final nextPage = _currentPage + 1;
+      final response = await _movieService.getAllMovie(
+        page: nextPage,
+        perPage: _perPage,
+        title: _query.isNotEmpty ? _query : null,
+        genre: _selectedGenre,
+        status: _apiStatusParam,
       );
-    }
 
-    return source.toList(growable: false);
+      if (!mounted) return;
+
+      final fetchedMovies = response?.data ?? [];
+
+      setState(() {
+        _currentPage = nextPage;
+        _movies.addAll(fetchedMovies);
+        _hasMore = fetchedMovies.length >= _perPage;
+
+        if (_filter == _MovieFilter.popular) {
+          _movies.sort((a, b) => b.id.compareTo(a.id));
+        }
+
+        _loadingMore = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _loadingMore = false;
+        _hasMore = false;
+      });
+    }
+  }
+
+  void _onSearchChanged(String value) {
+    setState(() {
+      _query = value;
+    });
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 500), () {
+      _loadFirstPage();
+    });
   }
 
   void _clearSearch() {
     _searchController.clear();
     setState(() {
       _query = '';
+      _selectedGenre = null;
       _filter = _MovieFilter.nowPlaying;
     });
+    _loadFirstPage();
   }
 
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    return ScreenContainer(
-      title: 'Phim',
-      subtitle: 'Tìm kiếm, lọc và chọn suất chiếu',
-      onRefresh: _load,
-      child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 200),
-        child: _buildContent(),
+
+    return NotificationListener<ScrollNotification>(
+      onNotification: (ScrollNotification scrollInfo) {
+        final triggerOffset = scrollInfo.metrics.maxScrollExtent - 200;
+
+        if (!_loading && !_loadingMore && _hasMore && scrollInfo.metrics.pixels >= triggerOffset) {
+          _loadMore();
+        }
+        return false;
+      },
+      child: ScreenContainer(
+        title: 'Phim',
+        subtitle: 'Tìm kiếm, lọc và chọn suất chiếu',
+        onRefresh: _loadFirstPage,
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          child: _buildContent(),
+        ),
       ),
     );
   }
@@ -141,62 +216,165 @@ class _MovieScreenState extends State<MovieScreen>
         key: const ValueKey('movies-error'),
         title: 'Không tải được danh sách phim',
         message: 'Hãy thử lại để lấy phim đang chiếu và sắp chiếu.',
-        onRetry: _load,
+        onRetry: _loadFirstPage,
       );
     }
-
-    if (_allMovies.isEmpty) {
-      return AppEmptyState(
-        key: const ValueKey('movies-empty'),
-        title: 'Chưa có phim',
-        message: 'Danh sách phim sẽ xuất hiện khi dữ liệu sẵn sàng.',
-        actionLabel: 'Tải lại',
-        onAction: _load,
-      );
-    }
-
-    final movies = _filteredMovies;
 
     return Column(
       key: const ValueKey('movies-content'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        AppInput(
-          controller: _searchController,
-          placeholder: 'Tìm phim, thể loại...',
-          leftIcon: const Icon(Icons.search),
-          rightIcon: _query.isEmpty
-              ? null
-              : IconButton(
-            tooltip: 'Xóa tìm kiếm',
-            onPressed: _clearSearch,
-            icon: const Icon(Icons.close),
-          ),
-          onChanged: (value) => setState(() => _query = value),
+        Row(
+          children: [
+            Expanded(
+              child: AppInput(
+                controller: _searchController,
+                placeholder: 'Tìm phim, thể loại...',
+                leftIcon: const Icon(Icons.search),
+                rightIcon: _query.isEmpty
+                    ? null
+                    : IconButton(
+                  tooltip: 'Xóa tìm kiếm',
+                  onPressed: _clearSearch,
+                  icon: const Icon(Icons.close),
+                ),
+                onChanged: _onSearchChanged,
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  _showFilters = !_showFilters;
+                });
+              },
+              child: Container(
+                height: 48,
+                width: 48,
+                decoration: BoxDecoration(
+                  color: _showFilters ? AppColors.brandPrimary : AppColors.bgSurface2,
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  border: Border.all(
+                    color: _showFilters ? AppColors.brandPrimary : AppColors.borderDefault,
+                  ),
+                ),
+                child: Icon(
+                  _showFilters ? Icons.tune : Icons.tune_outlined,
+                  color: _showFilters ? Colors.white : AppColors.textPrimary,
+                  size: 20,
+                ),
+              ),
+            ),
+          ],
         ),
+
+        AnimatedSize(
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.fastOutSlowIn,
+          child: _showFilters
+              ? Container(
+            margin: const EdgeInsets.only(top: AppSpacing.md),
+            padding: const EdgeInsets.all(AppSpacing.md),
+            decoration: BoxDecoration(
+              color: AppColors.bgSurface2,
+              borderRadius: BorderRadius.circular(AppRadius.md),
+              border: Border.all(color: AppColors.borderDefault),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'LỌC THEO THỂ LOẠI',
+                      style: AppTypography.captionStrong.copyWith(
+                        color: AppColors.textMuted,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                    if (_selectedGenre != null)
+                      GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _selectedGenre = null;
+                          });
+                          _loadFirstPage();
+                        },
+                        child: Text(
+                          'Xóa lọc',
+                          style: AppTypography.captionStrong.copyWith(
+                            color: AppColors.brandPrimary,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.sm),
+                Wrap(
+                  spacing: AppSpacing.xs,
+                  runSpacing: AppSpacing.xs,
+                  children: _genres.map((genre) {
+                    final isSelected = _selectedGenre == genre['value'];
+                    return ChoiceChip(
+                      label: Text(genre['label']!),
+                      selected: isSelected,
+                      onSelected: (selected) {
+                        setState(() {
+                          _selectedGenre = selected ? genre['value'] : null;
+                        });
+                        _loadFirstPage();
+                      },
+                      selectedColor: AppColors.brandPrimary,
+                      backgroundColor: AppColors.bgSurface3,
+                      labelStyle: AppTypography.captionStrong.copyWith(
+                        color: isSelected ? Colors.white : AppColors.textSecondary,
+                      ),
+                      showCheckmark: false,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(AppRadius.xs),
+                        side: BorderSide(
+                          color: isSelected ? AppColors.brandPrimary : AppColors.borderDefault,
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          )
+              : const SizedBox.shrink(),
+        ),
+
         const SizedBox(height: AppSpacing.md),
         _FilterTabs(
           selected: _filter,
-          onChanged: (filter) => setState(() => _filter = filter),
+          onChanged: (filter) {
+            setState(() {
+              _filter = filter;
+            });
+            _loadFirstPage();
+          },
         ),
         const SizedBox(height: AppSpacing.md),
         Text(
-          '${movies.length} phim',
+          '${_movies.length} phim',
           style: AppTypography.caption.copyWith(color: AppColors.textMuted),
         ),
         const SizedBox(height: AppSpacing.md),
-        if (movies.isEmpty)
+
+        if (_movies.isEmpty)
           AppEmptyState(
             title: 'Không tìm thấy phim',
             message: 'Thử đổi từ khóa hoặc chọn bộ lọc khác.',
             actionLabel: 'Xóa bộ lọc',
             onAction: _clearSearch,
           )
-        else
+        else ...[
           GridView.builder(
             physics: const NeverScrollableScrollPhysics(),
             shrinkWrap: true,
-            itemCount: movies.length,
+            itemCount: _movies.length,
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 2,
               crossAxisSpacing: AppSpacing.md,
@@ -204,7 +382,7 @@ class _MovieScreenState extends State<MovieScreen>
               childAspectRatio: 0.54,
             ),
             itemBuilder: (context, index) {
-              final movie = movies[index];
+              final movie = _movies[index];
               final tag = 'movies-${movie.id}';
               return MovieCard(
                 movie: movie,
@@ -213,6 +391,21 @@ class _MovieScreenState extends State<MovieScreen>
               );
             },
           ),
+
+          if (_loadingMore)
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+              alignment: Alignment.center,
+              child: const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.brandPrimary),
+                ),
+              ),
+            ),
+        ],
       ],
     );
   }
@@ -344,14 +537,17 @@ class MovieCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.sm),
           SizedBox(
-            height: 38,
+            height: 42,
             child: Text(
-              movie.title,
+              movie.title.toUpperCase(),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: AppTypography.bodyStrong.copyWith(
                 color: AppColors.textPrimary,
-                height: 1.2,
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                height: 1.3,
+                letterSpacing: 0.3,
               ),
             ),
           ),
@@ -360,10 +556,10 @@ class MovieCard extends StatelessWidget {
             children: [
               const Icon(
                 Icons.access_time_rounded,
-                size: 13,
+                size: 14,
                 color: AppColors.textMuted,
               ),
-              const SizedBox(width: 4),
+              const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   movie.durationFormatted,
@@ -371,6 +567,7 @@ class MovieCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: AppTypography.caption.copyWith(
                     color: AppColors.textMuted,
+                    fontSize: 12,
                   ),
                 ),
               ),
@@ -382,54 +579,40 @@ class MovieCard extends StatelessWidget {
   }
 
   Widget _buildBadge(bool isNowShowing) {
-    if (isNowShowing) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: const Color(0xFFFF1E27),
-          borderRadius: BorderRadius.circular(AppRadius.xs),
-          border: Border.all(color: const Color(0xFFFF5252), width: 1.5),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFFFF1E27).withOpacity(0.6),
-              blurRadius: 8,
-              spreadRadius: 1,
-            ),
-          ],
-        ),
-        child: const Text(
-          'ĐANG CHIẾU',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 9,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 0.5,
+    final badgeColor = isNowShowing ? const Color(0xFFFF1E27) : const Color(0xFF1A1A1A);
+    final borderColor = isNowShowing ? const Color(0xFFFF5252) : const Color(0xFFFF1E27);
+    final textColor = isNowShowing ? Colors.white : const Color(0xFFFF1E27);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: badgeColor,
+        borderRadius: BorderRadius.circular(AppRadius.xs),
+        border: Border.all(color: borderColor, width: 1.5),
+        boxShadow: isNowShowing
+            ? [
+          BoxShadow(
+            color: const Color(0xFFFF1E27).withOpacity(0.55),
+            blurRadius: 10,
+            spreadRadius: 1,
           ),
+        ]
+            : null,
+      ),
+      child: Text(
+        isNowShowing ? 'ĐANG CHIẾU' : 'SẮP CHIẾU',
+        style: TextStyle(
+          color: textColor,
+          fontSize: 9.5,
+          fontWeight: FontWeight.bold,
+          letterSpacing: 0.8,
         ),
-      );
-    } else {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-        decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.5),
-          borderRadius: BorderRadius.circular(AppRadius.xs),
-          border: Border.all(color: const Color(0xFFFF1E27), width: 1.5),
-        ),
-        child: const Text(
-          'SẮP CHIẾU',
-          style: TextStyle(
-            color: Color(0xFFFF1E27),
-            fontSize: 9,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 0.5,
-          ),
-        ),
-      );
-    }
+      ),
+    );
   }
 
   Widget _buildPoster() {
-    final url = movie.posterUrl ?? '';
+    final url = ImageHelper.getCorrectImageUrl(movie.posterUrl);
     if (url.startsWith('http://') || url.startsWith('https://')) {
       return Image.network(
         url,
@@ -439,8 +622,8 @@ class MovieCard extends StatelessWidget {
           if (loadingProgress == null) return child;
           return const Center(
             child: SizedBox(
-              width: 20,
-              height: 20,
+              width: 24,
+              height: 24,
               child: CircularProgressIndicator(strokeWidth: 2),
             ),
           );
@@ -460,7 +643,7 @@ class MovieCard extends StatelessWidget {
       child: const Center(
         child: Icon(
           Icons.image_not_supported_outlined,
-          size: 28,
+          size: 32,
           color: AppColors.textMuted,
         ),
       ),

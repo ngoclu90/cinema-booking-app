@@ -18,20 +18,15 @@ class ShowtimeItemDto {
   factory ShowtimeItemDto.fromJson(Map<String, dynamic> json) {
     return ShowtimeItemDto(
       id: json['id'] as int? ?? 0,
-      showTime: json['showTime']?.toString() ?? '',
+      showTime: (json['startTime'] ?? json['showTime'] ?? '').toString(),
       roomName: json['roomName']?.toString(),
       price: (json['price'] as num?)?.toDouble(),
-      format: json['format']?.toString(),
+      format: (json['type'] ?? json['format'])?.toString(),
       language: json['language']?.toString(),
     );
   }
 }
 
-/*
- * Lớp MovieWithShowtimesDto:
- * Ánh xạ chính xác cấu trúc đối tượng 'MovieWithShowtimesDtos' từ Backend.
- * Phục vụ hiển thị cụm rạp, ảnh rạp, poster phim, thời lượng cùng danh sách các suất chiếu.
- */
 class MovieWithShowtimesDto {
   final int cinemaId;
   final String cinemaName;
@@ -52,7 +47,9 @@ class MovieWithShowtimesDto {
   });
 
   factory MovieWithShowtimesDto.fromJson(Map<String, dynamic> json) {
-    final rawShowtimes = json['showtimes'] as List<dynamic>? ?? [];
+    final rawList = json['showtimes'] ?? json['showtime'] ?? [];
+    final List<dynamic> list = rawList is List ? rawList : [];
+
     return MovieWithShowtimesDto(
       cinemaId: json['cinemaId'] as int? ?? 0,
       cinemaName: json['cinemaName']?.toString() ?? '',
@@ -60,7 +57,7 @@ class MovieWithShowtimesDto {
       cinemaImageUrl: json['cinemaImageUrl']?.toString(),
       posterUrl: json['posterUrl']?.toString(),
       durationMinutes: json['durationMinutes'] as int?,
-      showtimes: rawShowtimes
+      showtimes: list
           .map((item) => ShowtimeItemDto.fromJson(item as Map<String, dynamic>))
           .toList(),
     );

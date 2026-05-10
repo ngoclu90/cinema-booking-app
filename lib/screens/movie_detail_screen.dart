@@ -1,27 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../components/cinema/index.dart';
 import '../components/movie/index.dart';
 import '../components/ui/index.dart';
 import '../design_system/tokens/index.dart';
 import '../layouts/app_shell/index.dart';
-import '../mocks/movie_with_showtimes_dto.dart';
 import '../models/cinema.dart';
 import '../models/movie.dart';
 import '../models/showtime.dart';
-import '../models/showtime_item.dart';
 import '../utils/app_notifier.dart';
 import '../data/services/movie_service.dart';
+import '../utils/image_helper.dart';
 import 'seat_selection_screen.dart';
 
 class MovieDetailScreen extends StatefulWidget {
   final MoviePublicDto movie;
   final String heroTag;
 
-  const MovieDetailScreen({
-    super.key,
-    required this.movie,
-    required this.heroTag,
-  });
+  const MovieDetailScreen({super.key, required this.movie, required this.heroTag});
 
   @override
   State<MovieDetailScreen> createState() => _MovieDetailScreenState();
@@ -29,13 +25,13 @@ class MovieDetailScreen extends StatefulWidget {
 
 class _MovieDetailScreenState extends State<MovieDetailScreen> {
   final MovieService _movieService = MovieService();
-  final List<String> _dateLabels = const ['Hôm nay', 'Ngày mai'];
+  final List<DateTime> _dates = List.generate(7, (i) => DateTime.now().add(Duration(days: i)));
 
   late MoviePublicDto _currentMovie;
   bool _loadingCinemas = true;
   bool _loadingDetail = true;
 
-  List<Cinema> _cinemas = const <Cinema>[];
+  List<Cinema> _cinemas = [];
   Map<String, List<Showtime>> _cinemaShowtimes = {};
 
   int _selectedDateIndex = 0;
@@ -49,34 +45,30 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     _loadAllData();
   }
 
-  Future<void> _loadAllData() async {
-    setState(() {
-      _loadingCinemas = true;
-      _loadingDetail = true;
-    });
+  DateTime? _safeParseDate(String dateStr) {
+    try {
+      return DateTime.parse(dateStr).toLocal();
+    } catch (_) {
+      try {
+        return DateFormat("yyyy-MM-dd HH:mm:ss").parse(dateStr).toLocal();
+      } catch (e) {
+        return null;
+      }
+    }
+  }
 
-    await Future.wait([
-      _fetchServerMovieDetail(),
-      _fetchCinemasAndShowtimes(),
-    ]);
+  Future<void> _loadAllData() async {
+    setState(() { _loadingCinemas = true; _loadingDetail = true; });
+    await Future.wait([_fetchServerMovieDetail(), _fetchCinemasAndShowtimes()]);
   }
 
   Future<void> _fetchServerMovieDetail() async {
     try {
       final response = await _movieService.getMovieDetail(_currentMovie.id);
-      if (!mounted) return;
-      if (response != null && response.data != null) {
-        setState(() {
-          _currentMovie = response.data!;
-          _loadingDetail = false;
-        });
-      } else {
-        setState(() => _loadingDetail = false);
+      if (mounted && response?.data != null) {
+        setState(() { _currentMovie = response!.data!; _loadingDetail = false; });
       }
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _loadingDetail = false);
-    }
+    } catch (_) { if (mounted) setState(() => _loadingDetail = false); }
   }
 
   Future<void> _fetchCinemasAndShowtimes() async {
@@ -84,81 +76,24 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       final response = await _movieService.getCinemasWithShowtimes(_currentMovie.id);
       if (!mounted) return;
 
-      List<MovieWithShowtimesDto> rawDataList = [];
-
-      if (response != null && response.data != null && response.data!.isNotEmpty) {
-        rawDataList = response.data!;
-      } else {
-        rawDataList = getMockMovieWithShowtimes();
-      }
-
+      final rawDataList = response?.data ?? [];
       final List<Cinema> tempCinemas = [];
       final Map<String, List<Showtime>> tempShowtimesMap = {};
 
       for (var cinemaDto in rawDataList) {
         final cinemaIdStr = cinemaDto.cinemaId.toString();
 
-        /* Ép kiểu và bổ sung đầy đủ tham số required cho class Cinema */
         tempCinemas.add(Cinema(
           id: cinemaIdStr,
           name: cinemaDto.cinemaName,
-          address: cinemaDto.address ?? '',
-          status: 'Đang mở cửa',
-          distance: '0.0 km',
-          halls: cinemaDto.durationMinutes != null ? 3 : 5,
-          phone: '1900 6017',
-          landmark: 'Khu vực trung tâm',
-          operatingHours: '08:00 - 23:00',
-          accentValue: 0xFFE12636,
-          facilities: const ['Wifi', 'Parking', 'Food & Drinks'],
-        ));
-
-        final List<Showtime> showtimesForThisCinema = [];
-        for (var showtimeDto in cinemaDto.showtimes) {
-          showtimesForThisCinema.add(Showtime(
-            id: showtimeDto.id.toString(),
-            time: _formatTime(showtimeDto.showTime),
-            screen: showtimeDto.roomName ?? 'Phòng chiếu',
-            price: showtimeDto.price != null
-                ? '${showtimeDto.price!.toStringAsFixed(0).replaceAllMapped(RegExp(r"(\d{1,3})(?=(\d{3})+(?!\d))"), (Match m) => "${m[1]}.")}đ'
-                : '0đ',
-            availability: 'Còn chỗ',
-            format: showtimeDto.format ?? '2D',
-            language: showtimeDto.language ?? 'Phụ đề',
-            dateLabel: _getDateLabel(showtimeDto.showTime),
-          ));
-        }
-        tempShowtimesMap[cinemaIdStr] = showtimesForThisCinema;
-      }
-
-      setState(() {
-        _cinemas = tempCinemas;
-        _cinemaShowtimes = tempShowtimesMap;
-        _selectedCinema = tempCinemas.firstOrNull;
-        _selectedShowtime = _getInitialShowtime(tempCinemas, tempShowtimesMap);
-        _loadingCinemas = false;
-      });
-    } catch (e) {
-      print('Fetch API Error, falling back to mock: $e');
-      if (!mounted) return;
-
-      final mockData = getMockMovieWithShowtimes();
-      final List<Cinema> tempCinemas = [];
-      final Map<String, List<Showtime>> tempShowtimesMap = {};
-
-      for (var cinemaDto in mockData) {
-        final cinemaIdStr = cinemaDto.cinemaId.toString();
-
-        /* Bổ sung đầy đủ tham số required ở luồng Fallback để tránh lỗi */
-        tempCinemas.add(Cinema(
-          id: cinemaIdStr,
-          name: cinemaDto.cinemaName,
-          address: cinemaDto.address ?? '',
+          address: cinemaDto.address ?? 'Địa chỉ đang cập nhật',
+          // Lấy ảnh rạp từ API
+          imageUrl: ImageHelper.getCorrectImageUrl(cinemaDto.cinemaImageUrl),
           status: 'Đang mở cửa',
           distance: '0.0 km',
           halls: 5,
           phone: '1900 6017',
-          landmark: 'Khu vực trung tâm',
+          landmark: 'Khu vực gần đó',
           operatingHours: '08:00 - 23:00',
           accentValue: 0xFFE12636,
           facilities: const ['Wifi', 'Parking', 'Food & Drinks'],
@@ -166,17 +101,18 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
 
         final List<Showtime> showtimesForThisCinema = [];
         for (var showtimeDto in cinemaDto.showtimes) {
+          final dt = _safeParseDate(showtimeDto.showTime);
+          if (dt == null) continue;
+
           showtimesForThisCinema.add(Showtime(
             id: showtimeDto.id.toString(),
-            time: _formatTime(showtimeDto.showTime),
+            time: DateFormat('HH:mm').format(dt),
             screen: showtimeDto.roomName ?? 'Phòng chiếu',
-            price: showtimeDto.price != null
-                ? '${showtimeDto.price!.toStringAsFixed(0).replaceAllMapped(RegExp(r"(\d{1,3})(?=(\d{3})+(?!\d))"), (Match m) => "${m[1]}.")}đ'
-                : '0đ',
+            price: showtimeDto.price != null ? '${showtimeDto.price!.toStringAsFixed(0)}đ' : '0đ',
             availability: 'Còn chỗ',
             format: showtimeDto.format ?? '2D',
             language: showtimeDto.language ?? 'Phụ đề',
-            dateLabel: _getDateLabel(showtimeDto.showTime),
+            dateLabel: DateFormat('yyyy-MM-dd').format(dt),
           ));
         }
         tempShowtimesMap[cinemaIdStr] = showtimesForThisCinema;
@@ -185,87 +121,40 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       setState(() {
         _cinemas = tempCinemas;
         _cinemaShowtimes = tempShowtimesMap;
-        _selectedCinema = tempCinemas.firstOrNull;
-        _selectedShowtime = _getInitialShowtime(tempCinemas, tempShowtimesMap);
+        _autoSelectFirstAvailableDate(tempCinemas, tempShowtimesMap);
         _loadingCinemas = false;
       });
+    } catch (e) {
+      if (mounted) setState(() => _loadingCinemas = false);
     }
   }
 
-  Showtime? _getInitialShowtime(List<Cinema> cinemas, Map<String, List<Showtime>> showtimesMap) {
-    if (cinemas.isEmpty) return null;
-    final firstCinemaId = cinemas.first.id;
-    final showtimes = showtimesMap[firstCinemaId] ?? [];
-    final currentLabel = _dateLabels[_selectedDateIndex];
-    return showtimes.where((s) => s.dateLabel == currentLabel).firstOrNull;
+  void _autoSelectFirstAvailableDate(List<Cinema> cinemas, Map<String, List<Showtime>> showtimesMap) {
+    for (int i = 0; i < _dates.length; i++) {
+      final key = DateFormat('yyyy-MM-dd').format(_dates[i]);
+      if (cinemas.any((c) => (showtimesMap[c.id] ?? []).any((s) => s.dateLabel == key))) {
+        _selectedDateIndex = i; _selectDate(i); return;
+      }
+    }
+    _selectedDateIndex = 0;
   }
 
   void _selectDate(int index) {
-    setState(() {
-      _selectedDateIndex = index;
-    });
-
-    final currentLabel = _dateLabels[index];
-    Showtime? nextSelectedShowtime;
-    Cinema? nextSelectedCinema;
-
-    for (var cinema in _cinemas) {
-      final showtimes = (_cinemaShowtimes[cinema.id] ?? [])
-          .where((s) => s.dateLabel == currentLabel)
-          .toList();
-      if (showtimes.isNotEmpty) {
-        nextSelectedCinema = cinema;
-        nextSelectedShowtime = showtimes.first;
-        break;
-      }
+    setState(() => _selectedDateIndex = index);
+    final key = DateFormat('yyyy-MM-dd').format(_dates[index]);
+    Cinema? nextC; Showtime? nextS;
+    for (var c in _cinemas) {
+      final list = (_cinemaShowtimes[c.id] ?? []).where((s) => s.dateLabel == key).toList();
+      if (list.isNotEmpty) { nextC = c; nextS = list.first; break; }
     }
-
-    setState(() {
-      _selectedCinema = nextSelectedCinema;
-      _selectedShowtime = nextSelectedShowtime;
-    });
+    setState(() { _selectedCinema = nextC; _selectedShowtime = nextS; });
   }
 
   void _openSeatSelection() {
-    if (_selectedShowtime == null || _selectedCinema == null) {
-      AppNotifier.warning(context, title: 'Chưa chọn suất', description: 'Hãy chọn rạp và suất chiếu.');
-      return;
-    }
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => SeatSelectionScreen(
-          movie: _currentMovie,
-          showtime: _selectedShowtime!,
-          cinema: _selectedCinema!,
-        ),
-      ),
-    );
-  }
-
-  String _formatTime(String showTimeStr) {
-    try {
-      final dateTime = DateTime.parse(showTimeStr);
-      return '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
-    } catch (_) {
-      return showTimeStr;
-    }
-  }
-
-  String _getDateLabel(String showTimeStr) {
-    try {
-      final dateTime = DateTime.parse(showTimeStr);
-      final now = DateTime.now();
-      final tomorrow = now.add(const Duration(days: 1));
-
-      if (dateTime.year == now.year && dateTime.month == now.month && dateTime.day == now.day) {
-        return 'Hôm nay';
-      } else if (dateTime.year == tomorrow.year && dateTime.month == tomorrow.month && dateTime.day == tomorrow.day) {
-        return 'Ngày mai';
-      }
-      return 'Hôm nay';
-    } catch (_) {
-      return 'Hôm nay';
-    }
+    if (_selectedShowtime == null) return;
+    Navigator.push(context, MaterialPageRoute(builder: (_) => SeatSelectionScreen(
+      movie: _currentMovie, showtime: _selectedShowtime!, cinema: _selectedCinema!,
+    )));
   }
 
   @override
@@ -278,61 +167,32 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
             child: RefreshIndicator(
               onRefresh: _loadAllData,
               child: CustomScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
                 slivers: [
-                  SliverToBoxAdapter(
-                    child: _CinematicHeader(
-                      movie: _currentMovie,
-                      heroTag: widget.heroTag,
-                    ),
-                  ),
+                  SliverToBoxAdapter(child: _CinematicHeader(movie: _currentMovie, heroTag: widget.heroTag)),
                   SliverToBoxAdapter(
                     child: Padding(
                       padding: const EdgeInsets.all(AppSpacing.lg),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            _currentMovie.title,
-                            style: AppTypography.title.copyWith(fontSize: 28),
-                          ),
+                          Text(_currentMovie.title, style: AppTypography.title.copyWith(fontSize: 28)),
                           const SizedBox(height: AppSpacing.sm),
-                          Row(
-                            children: [
-                              AppBadge(
-                                label: _currentMovie.ageRating ?? 'P',
-                                backgroundColor: Colors.transparent,
-                                foregroundColor: AppColors.brandPrimary,
-                                borderColor: AppColors.brandPrimary,
-                              ),
-                              const SizedBox(width: AppSpacing.sm),
-                              AppBadge(
-                                label: _currentMovie.status ?? 'Đang chiếu',
-                                backgroundColor: AppColors.brandPrimarySoft,
-                                foregroundColor: AppColors.textPrimary,
-                                borderColor: AppColors.brandPrimary,
-                              ),
-                            ],
-                          ),
+                          Row(children: [
+                            AppBadge(label: _currentMovie.ageRating ?? 'P', backgroundColor: Colors.transparent, foregroundColor: AppColors.brandPrimary, borderColor: AppColors.brandPrimary),
+                            const SizedBox(width: AppSpacing.sm),
+                            AppBadge(label: _currentMovie.status ?? 'Đang chiếu', backgroundColor: AppColors.brandPrimarySoft, foregroundColor: AppColors.textPrimary, borderColor: AppColors.brandPrimary),
+                          ]),
                           const SizedBox(height: AppSpacing.xl),
-                          _buildSectionHeader('Nội dung'),
+                          const _SectionLabel(label: 'Nội dung'),
                           const SizedBox(height: AppSpacing.sm),
-                          _loadingDetail
-                              ? const AppSkeletonBox(height: 80)
-                              : Text(
-                            _currentMovie.description ?? 'Nội dung đang được cập nhật...',
-                            style: AppTypography.body.copyWith(color: AppColors.textSecondary, height: 1.5),
-                          ),
+                          _loadingDetail ? const AppSkeletonBox(height: 80) : Text(_currentMovie.description ?? 'Nội dung đang cập nhật...', style: AppTypography.body.copyWith(color: AppColors.textSecondary, height: 1.5)),
                           const SizedBox(height: AppSpacing.xl),
                           _MovieMetadataSection(movie: _currentMovie),
                           const SizedBox(height: AppSpacing.xxl),
-                          _buildSectionHeader('Chọn suất chiếu'),
+                          const _SectionLabel(label: 'Lịch Chiếu'),
+                          Text('Chọn ngày để xem suất chiếu theo rạp.', style: AppTypography.caption.copyWith(color: AppColors.textMuted)),
                           const SizedBox(height: AppSpacing.md),
-                          _DateSelector(
-                            labels: _dateLabels,
-                            selectedIndex: _selectedDateIndex,
-                            onChanged: _selectDate,
-                          ),
+                          _DateSelector(dates: _dates, selectedIndex: _selectedDateIndex, cinemaShowtimes: _cinemaShowtimes, onChanged: _selectDate),
                           const SizedBox(height: AppSpacing.lg),
                           _buildCinemaShowtimes(),
                           const SizedBox(height: 140),
@@ -346,53 +206,83 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
           ),
         ],
       ),
-      bottomNavigationBar: _StickyCta(
-        selectedShowtime: _selectedShowtime,
-        selectedCinema: _selectedCinema,
-        onPressed: _openSeatSelection,
-      ),
+      bottomNavigationBar: _StickyCta(selectedShowtime: _selectedShowtime, selectedCinema: _selectedCinema, onPressed: _openSeatSelection),
     );
-  }
-
-  Widget _buildSectionHeader(String title) {
-    return Text(title, style: AppTypography.subtitle.copyWith(fontWeight: FontWeight.bold));
   }
 
   Widget _buildCinemaShowtimes() {
     if (_loadingCinemas) return const AppSkeletonList(itemCount: 2);
-    final currentLabel = _dateLabels[_selectedDateIndex];
+    final key = DateFormat('yyyy-MM-dd').format(_dates[_selectedDateIndex]);
+    final cinemas = _cinemas.where((c) => (_cinemaShowtimes[c.id] ?? []).any((s) => s.dateLabel == key)).toList();
 
-    final cinemasWithShowtimesForDate = _cinemas.where((cinema) {
-      final showtimes = _cinemaShowtimes[cinema.id] ?? [];
-      return showtimes.any((s) => s.dateLabel == currentLabel);
-    }).toList();
+    if (cinemas.isEmpty) return const AppEmptyState(title: 'Chưa có suất chiếu', message: 'Không có suất chiếu phù hợp cho ngày này.');
 
-    if (cinemasWithShowtimesForDate.isEmpty) {
-      return const AppEmptyState(
-        title: 'Chưa có suất chiếu',
-        message: 'Không có suất chiếu nào phù hợp cho ngày này.',
+    return Column(children: cinemas.map((cinema) {
+      final list = (_cinemaShowtimes[cinema.id] ?? []).where((s) => s.dateLabel == key).toList();
+      return Padding(
+        padding: const EdgeInsets.only(bottom: AppSpacing.md),
+        child: CinemaCard(
+          cinema: cinema,
+          showtimes: list,
+          selectedShowtime: _selectedCinema?.id == cinema.id ? _selectedShowtime : null,
+          onShowtimeSelected: (s) => setState(() { _selectedCinema = cinema; _selectedShowtime = s; }),
+        ),
       );
-    }
+    }).toList());
+  }
+}
 
-    return Column(
-      children: cinemasWithShowtimesForDate.map((cinema) {
-        final showtimes = (_cinemaShowtimes[cinema.id] ?? [])
-            .where((s) => s.dateLabel == currentLabel)
-            .toList();
+class _DateSelector extends StatelessWidget {
+  final List<DateTime> dates;
+  final int selectedIndex;
+  final Map<String, List<Showtime>> cinemaShowtimes;
+  final ValueChanged<int> onChanged;
 
-        return Padding(
-          padding: const EdgeInsets.only(bottom: AppSpacing.md),
-          child: CinemaCard(
-            cinema: cinema,
-            showtimes: showtimes,
-            selectedShowtime: _selectedCinema?.id == cinema.id ? _selectedShowtime : null,
-            onShowtimeSelected: (s) => setState(() {
-              _selectedCinema = cinema;
-              _selectedShowtime = s;
-            }),
-          ),
-        );
-      }).toList(),
+  const _DateSelector({required this.dates, required this.selectedIndex, required this.cinemaShowtimes, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 80,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: dates.length,
+        separatorBuilder: (_, __) => const SizedBox(width: AppSpacing.sm),
+        itemBuilder: (context, index) {
+          final date = dates[index];
+          final key = DateFormat('yyyy-MM-dd').format(date);
+          final hasData = cinemaShowtimes.values.any((list) => list.any((s) => s.dateLabel == key));
+          final isSelected = selectedIndex == index;
+
+          String weekday = DateFormat('E').format(date).toUpperCase();
+          if (DateFormat('yyyy-MM-dd').format(DateTime.now()) == key) weekday = "H.NAY";
+          if (date.weekday == DateTime.sunday) weekday = "CN";
+
+          return GestureDetector(
+            onTap: hasData ? () => onChanged(index) : null,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: 65,
+              decoration: BoxDecoration(
+                color: isSelected ? AppColors.brandPrimary : AppColors.bgSurface2,
+                borderRadius: BorderRadius.circular(AppRadius.md),
+                border: Border.all(color: isSelected ? AppColors.brandPrimary : AppColors.borderDefault, width: 1.5),
+              ),
+              child: Opacity(
+                opacity: hasData ? 1.0 : 0.3,
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(weekday, style: AppTypography.captionStrong.copyWith(color: isSelected ? Colors.white70 : AppColors.textMuted, fontSize: 10)),
+                    const SizedBox(height: 4),
+                    Text(DateFormat('dd').format(date), style: AppTypography.subtitle.copyWith(color: isSelected ? Colors.white : AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 18)),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }
@@ -400,224 +290,69 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
 class _CinematicHeader extends StatelessWidget {
   final MoviePublicDto movie;
   final String heroTag;
-
   const _CinematicHeader({required this.movie, required this.heroTag});
 
   @override
   Widget build(BuildContext context) {
+    final bannerUrl = ImageHelper.getCorrectImageUrl((movie.bannerUrl?.isNotEmpty ?? false) ? movie.bannerUrl : movie.posterUrl);
+    final posterUrl = ImageHelper.getCorrectImageUrl(movie.posterUrl);
     return SizedBox(
       height: 320,
       child: Stack(
         children: [
-          Container(
-            height: 260,
-            width: double.infinity,
-            decoration: const BoxDecoration(color: AppColors.bgSurface3),
-            child: movie.bannerUrl != null
-                ? Image.network(movie.bannerUrl!, fit: BoxFit.cover)
-                : const Center(child: Icon(Icons.movie_creation_outlined, size: 48)),
-          ),
-          Positioned.fill(
-            bottom: 60,
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Colors.transparent, Colors.black.withOpacity(0.7)],
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            top: 40,
-            left: 20,
-            child: AppHeaderIconButton(
-              icon: Icons.arrow_back,
-              label: 'Quay lại',
-              onPressed: () => Navigator.pop(context),
-            ),
-          ),
-          Positioned(
-            bottom: 0,
-            left: AppSpacing.lg,
-            child: Container(
-              height: 160,
-              width: 110,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(AppRadius.md),
-                boxShadow: [
-                  BoxShadow(
-                      color: Colors.black.withOpacity(0.5),
-                      blurRadius: 10,
-                      offset: const Offset(0, 5)
-                  )
-                ],
-                border: Border.all(color: AppColors.bgApp, width: 3),
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(AppRadius.sm),
-                child: Hero(
-                  tag: heroTag,
-                  child: MoviePoster(movie: movie),
-                ),
-              ),
-            ),
-          ),
+          Container(height: 260, width: double.infinity, color: AppColors.bgSurface3, child: bannerUrl.isNotEmpty ? Image.network(bannerUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.movie)) : const SizedBox.shrink()),
+          Positioned.fill(bottom: 60, child: Container(decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.transparent, Colors.black.withOpacity(0.8)])))),
+          Positioned(top: 40, left: 20, child: AppHeaderIconButton(icon: Icons.arrow_back, label: 'Quay lại', onPressed: () => Navigator.pop(context))),
+          Positioned(bottom: 0, left: AppSpacing.lg, child: Container(height: 160, width: 110, decoration: BoxDecoration(borderRadius: BorderRadius.circular(AppRadius.md), border: Border.all(color: AppColors.bgApp, width: 3)), child: ClipRRect(borderRadius: BorderRadius.circular(AppRadius.sm), child: Hero(tag: heroTag, child: posterUrl.isNotEmpty ? Image.network(posterUrl, fit: BoxFit.cover) : Container(color: AppColors.bgSurface2))))),
         ],
       ),
     );
   }
+}
+
+class _SectionLabel extends StatelessWidget {
+  final String label;
+  const _SectionLabel({required this.label});
+  @override
+  Widget build(BuildContext context) => Text(label, style: AppTypography.subtitle.copyWith(fontWeight: FontWeight.bold));
 }
 
 class _MovieMetadataSection extends StatelessWidget {
   final MoviePublicDto movie;
   const _MovieMetadataSection({required this.movie});
-
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
-      decoration: BoxDecoration(
-        color: AppColors.bgSurface2,
-        borderRadius: BorderRadius.circular(AppRadius.md),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          Expanded(child: _buildMetaItem('Đạo diễn', movie.director ?? 'N/A', Icons.person_outline)),
-          _buildDivider(),
-          Expanded(child: _buildMetaItem('Thời lượng', movie.durationFormatted, Icons.timer_outlined)),
-          _buildDivider(),
-          Expanded(child: _buildMetaItem('Độ tuổi', movie.ageRating ?? 'P', Icons.verified_user_outlined)),
-        ],
-      ),
+      decoration: BoxDecoration(color: AppColors.bgSurface2, borderRadius: BorderRadius.circular(AppRadius.md)),
+      child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
+        _buildMetaItem('Đạo diễn', movie.director ?? 'N/A', Icons.person_outline),
+        Container(height: 30, width: 1, color: AppColors.borderDefault),
+        _buildMetaItem('Thời lượng', movie.durationFormatted, Icons.timer_outlined),
+        Container(height: 30, width: 1, color: AppColors.borderDefault),
+        _buildMetaItem('Độ tuổi', movie.ageRating ?? 'P', Icons.verified_user_outlined),
+      ]),
     );
   }
-
-  Widget _buildDivider() => Container(height: 30, width: 1, color: AppColors.borderDefault);
-
-  Widget _buildMetaItem(String label, String value, IconData icon) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 20, color: AppColors.brandPrimary),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: AppTypography.caption.copyWith(color: AppColors.textMuted),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        Text(
-          value,
-          style: AppTypography.captionStrong,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-      ],
-    );
-  }
-}
-
-class _DateSelector extends StatelessWidget {
-  final List<String> labels;
-  final int selectedIndex;
-  final ValueChanged<int> onChanged;
-
-  const _DateSelector({
-    required this.labels,
-    required this.selectedIndex,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: List.generate(labels.length, (index) {
-        final selected = selectedIndex == index;
-        return Expanded(
-          child: Padding(
-            padding: EdgeInsets.only(
-              right: index == labels.length - 1 ? 0 : AppSpacing.sm,
-            ),
-            child: SizedBox(
-              height: 44,
-              child: OutlinedButton(
-                onPressed: () => onChanged(index),
-                style: OutlinedButton.styleFrom(
-                  backgroundColor: selected
-                      ? AppColors.brandPrimary
-                      : AppColors.bgSurface2,
-                  side: BorderSide(
-                    color: selected
-                        ? AppColors.brandPrimary
-                        : AppColors.borderDefault,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
-                  ),
-                ),
-                child: Text(
-                  labels[index],
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.captionStrong.copyWith(
-                    color: selected
-                        ? AppColors.textPrimary
-                        : AppColors.textSecondary,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-      }),
-    );
-  }
+  Widget _buildMetaItem(String l, String v, IconData i) => Expanded(child: Column(children: [Icon(i, size: 20, color: AppColors.brandPrimary), const SizedBox(height: 4), Text(l, style: AppTypography.caption.copyWith(color: AppColors.textMuted)), Text(v, style: AppTypography.captionStrong, overflow: TextOverflow.ellipsis)]));
 }
 
 class _StickyCta extends StatelessWidget {
   final Showtime? selectedShowtime;
   final Cinema? selectedCinema;
   final VoidCallback onPressed;
-
   const _StickyCta({this.selectedShowtime, this.selectedCinema, required this.onPressed});
-
   @override
   Widget build(BuildContext context) {
     final ready = selectedShowtime != null && selectedCinema != null;
     return Container(
       padding: const EdgeInsets.fromLTRB(AppSpacing.lg, AppSpacing.md, AppSpacing.lg, 30),
-      decoration: const BoxDecoration(
-        color: AppColors.bgSurface,
-        border: Border(top: BorderSide(color: AppColors.borderDefault)),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Suất đã chọn', style: AppTypography.caption.copyWith(color: AppColors.textMuted)),
-                Text(ready ? '${selectedShowtime!.time} • ${selectedCinema!.name}' : 'Vui lòng chọn suất',
-                    style: AppTypography.bodyStrong, maxLines: 1, overflow: TextOverflow.ellipsis),
-              ],
-            ),
-          ),
-          const SizedBox(width: AppSpacing.md),
-          SizedBox(
-            width: 140,
-            height: 48,
-            child: AppButton(
-              title: 'Chọn ghế',
-              disabled: !ready,
-              onPressed: onPressed,
-            ),
-          ),
-        ],
-      ),
+      decoration: const BoxDecoration(color: AppColors.bgSurface, border: Border(top: BorderSide(color: AppColors.borderDefault))),
+      child: Row(children: [
+        Expanded(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [Text('Suất đã chọn', style: AppTypography.caption.copyWith(color: AppColors.textMuted)), Text(ready ? '${selectedShowtime!.time} • ${selectedCinema!.name}' : 'Vui lòng chọn suất', style: AppTypography.bodyStrong, maxLines: 1, overflow: TextOverflow.ellipsis)])),
+        const SizedBox(width: AppSpacing.md),
+        SizedBox(width: 140, height: 48, child: AppButton(title: 'Chọn ghế', disabled: !ready, onPressed: onPressed)),
+      ]),
     );
   }
 }

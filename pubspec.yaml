@@ -13,10 +13,12 @@ dependencies:
   cupertino_icons:
   font_awesome_flutter:
   google_fonts:
-  toastification:
+  toastification: ^3.2.0
   dio:
   go_router:
   shared_preferences:
+  lottie: ^3.3.3
+  intl: ^0.20.2
 
 dev_dependencies:
   flutter_test:
@@ -30,8 +32,7 @@ flutter:
     - assets/images/
 
 flutter_launcher_icons:
-  android: true
+  android: "launcher_icon"
   ios: true
-  image_path: "assets/images/logo_cinema_app_icon.png"
+  image_path: "assets/images/logo_cinema.png"
   remove_alpha_ios: true
-  background_color_ios: "#000000"
