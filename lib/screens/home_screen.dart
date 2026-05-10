@@ -12,10 +12,11 @@ import '../models/cinema.dart';
 import '../models/movie.dart';
 import '../models/news_item.dart';
 import '../models/voucher.dart';
+import '../api/payload/api_response.dart';
 
 /*
  * Màn hình HomeScreen:
- * Trang chủ chính của ứng dụng quản lý việc gọi song song các API từ hệ thống (Phim nổi bật, Phim đang chiếu, Phim sắp chiếu, Rạp, Ưu đãi, Tin tức).
+ * Trang chủ chính của ứng dụng quản lý việc gọi song song các API từ hệ thống.
  * Tích hợp cơ chế kéo để làm mới (Pull-to-refresh) và giữ lại trạng thái màn hình (AutomaticKeepAliveClientMixin).
  */
 class HomeScreen extends StatefulWidget {
@@ -38,14 +39,14 @@ class HomeScreen extends StatefulWidget {
 
 /*
  * Trạng thái của HomeScreen:
- * Xử lý gọi bất đồng bộ dữ liệu thông qua Future.wait để tối ưu hóa thời gian tải trang.
- * Quản lý các trạng thái hiển thị giao diện động bao gồm Đang tải (Loading), Lỗi kết nối (Error) và Trống dữ liệu (Empty).
+ * Khởi tạo trực tiếp các thực thể API Service không sử dụng hằng số 'const'.
+ * Thực hiện ép kiểu tường minh dữ liệu trả về từ luồng xử lý bất đồng bộ tập trung Future.wait.
  */
 class _HomeScreenState extends State<HomeScreen>
     with AutomaticKeepAliveClientMixin<HomeScreen> {
-  final MovieApi _movieApi = const MovieApi();
-  final CinemaApi _cinemaApi = const CinemaApi();
-  final VoucherApi _voucherApi = const VoucherApi();
+  final MovieApi _movieApi = MovieApi();
+  final CinemaApi _cinemaApi = CinemaApi();
+  final VoucherApi _voucherApi = VoucherApi();
 
   bool _loading = true;
   Object? _error;
@@ -82,13 +83,21 @@ class _HomeScreenState extends State<HomeScreen>
       ]);
 
       if (!mounted) return;
+
+      final featuredRes = responses[0] as ApiResponse<List<MoviePublicDto>>;
+      final nowPlayingRes = responses[1] as ApiResponse<List<MoviePublicDto>>;
+      final comingSoonRes = responses[2] as ApiResponse<List<MoviePublicDto>>;
+      final cinemasRes = responses[3] as ApiResponse<List<Cinema>>;
+      final vouchersRes = responses[4] as ApiResponse<List<Voucher>>;
+      final newsRes = responses[5] as ApiResponse<List<NewsItem>>;
+
       setState(() {
-        _featured = responses[0].data as List<MoviePublicDto>;
-        _nowPlaying = responses[1].data as List<MoviePublicDto>;
-        _comingSoon = responses[2].data as List<MoviePublicDto>;
-        _cinemas = responses[3].data as List<Cinema>;
-        _vouchers = responses[4].data as List<Voucher>;
-        _news = responses[5].data as List<NewsItem>;
+        _featured = featuredRes.data ?? const <MoviePublicDto>[];
+        _nowPlaying = nowPlayingRes.data ?? const <MoviePublicDto>[];
+        _comingSoon = comingSoonRes.data ?? const <MoviePublicDto>[];
+        _cinemas = cinemasRes.data ?? const <Cinema>[];
+        _vouchers = vouchersRes.data ?? const <Voucher>[];
+        _news = newsRes.data ?? const <NewsItem>[];
         _loading = false;
       });
     } catch (error) {
@@ -343,7 +352,7 @@ class _QuickAction extends StatelessWidget {
 
 /*
  * Component _HorizontalMovies:
- * Danh sách hiển thị danh sách phim theo chiều ngang (đang chiếu hoặc sắp chiếu) có hỗ trợ scroll kéo thả mượt mà.
+ * Danh sách hiển thị danh sách phim theo chiều ngang có hỗ trợ scroll kéo thả mượt mà.
  */
 class _HorizontalMovies extends StatelessWidget {
   final List<MoviePublicDto> movies;

@@ -30,11 +30,6 @@ class SeatSelectionScreen extends StatefulWidget {
   State<SeatSelectionScreen> createState() => _SeatSelectionScreenState();
 }
 
-/*
- * Trạng thái của SeatSelectionScreen:
- * Thiết lập sơ đồ phòng chiếu (blueprint) tĩnh, quản lý danh sách ghế đã được đặt và ghế đang chọn.
- * Tính toán trực tiếp đơn giá vé theo loại ghế và điều phối API giữ ghế bất đồng bộ.
- */
 class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
   static const List<List<String?>> _seatBlueprint = [
     ['A1', 'A2', 'A3', 'A4', null, 'A5', 'A6', 'A7', 'A8'],
@@ -47,15 +42,11 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
 
   final BookingApi _bookingApi = const BookingApi();
   final Set<String> _selectedSeats = <String>{};
+
   final Set<String> _vipSeats = {
-    'E5',
-    'E6',
-    'E7',
-    'E8',
-    'F5',
-    'F6',
-    'F7',
-    'F8',
+    'D3', 'D4', 'D5', 'D6',
+    'E3', 'E4', 'E5', 'E6',
+    'F3', 'F4', 'F5', 'F6',
   };
 
   bool _loading = true;
@@ -193,9 +184,7 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
                 backgroundColor: AppColors.bgSurface,
                 onRefresh: _loadSeatMap,
                 child: CustomScrollView(
-                  physics: const BouncingScrollPhysics(
-                    parent: AlwaysScrollableScrollPhysics(),
-                  ),
+                  physics: const AlwaysScrollableScrollPhysics(),
                   slivers: [
                     SliverToBoxAdapter(
                       child: Padding(
@@ -275,13 +264,16 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
         const SeatLegend(),
         const SizedBox(height: AppSpacing.lg),
         AppCard(
-          padding: AppCardPadding.md,
-          child: SeatGrid(
-            blueprint: _seatBlueprint,
-            selectedSeats: _selectedSeats,
-            bookedSeats: _bookedSeats,
-            vipSeats: _vipSeats,
-            onSeatPressed: _toggleSeat,
+          padding: AppCardPadding.sm, // Sửa thành AppCardPadding.sm của hệ thống để hết lỗi đỏ
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: SeatGrid(
+              blueprint: _seatBlueprint,
+              selectedSeats: _selectedSeats,
+              bookedSeats: _bookedSeats,
+              vipSeats: _vipSeats,
+              onSeatPressed: _toggleSeat,
+            ),
           ),
         ),
       ],
@@ -289,16 +281,11 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
   }
 
   String _formatPrice(int amount) {
-    if (amount <= 0) return '0k';
-    return '${(amount / 1000).round()}k';
+    if (amount <= 0) return '0đ';
+    return '${amount.toString().replaceAllMapped(RegExp(r"(\d{1,3})(?=(\d{3})+(?!\d))"), (Match m) => "${m[1]}.")}đ';
   }
 }
 
-/*
- * Component _BookingSummary:
- * Thẻ hiển thị tóm tắt thông tin của vé đang đặt bao gồm Tiêu đề phim, Cụm rạp chiếu,
- * Ngày chiếu, Giờ chiếu, Phòng chiếu và Đơn giá gốc.
- */
 class _BookingSummary extends StatelessWidget {
   final MoviePublicDto movie;
   final Showtime showtime;
@@ -341,16 +328,27 @@ class _BookingSummary extends StatelessWidget {
             children: [
               AppBadge(
                 label: showtime.dateLabel,
-                icon: const Icon(Icons.event),
+                icon: const Icon(Icons.event, size: 14),
+                backgroundColor: Colors.transparent,
+                borderColor: AppColors.borderDefault,
               ),
-              AppBadge(label: showtime.time, icon: const Icon(Icons.schedule)),
+              AppBadge(
+                label: showtime.time,
+                icon: const Icon(Icons.schedule, size: 14),
+                backgroundColor: Colors.transparent,
+                borderColor: AppColors.borderDefault,
+              ),
               AppBadge(
                 label: showtime.screen,
-                icon: const Icon(Icons.meeting_room_outlined),
+                icon: const Icon(Icons.meeting_room_outlined, size: 14),
+                backgroundColor: Colors.transparent,
+                borderColor: AppColors.borderDefault,
               ),
               AppBadge(
                 label: showtime.price,
-                icon: const Icon(Icons.payments_outlined),
+                icon: const Icon(Icons.payments_outlined, size: 14),
+                backgroundColor: Colors.transparent,
+                borderColor: AppColors.borderDefault,
               ),
             ],
           ),
@@ -360,32 +358,37 @@ class _BookingSummary extends StatelessWidget {
   }
 }
 
-/*
- * Component _ScreenIndicator:
- * Thanh định hướng giả lập vị trí màn hình chiếu phim thực tế để người dùng dễ dàng căn chỉnh hướng ngồi trước khi chọn ghế.
- */
 class _ScreenIndicator extends StatelessWidget {
   const _ScreenIndicator();
 
   @override
   Widget build(BuildContext context) {
-    return AppCard(
-      padding: AppCardPadding.md,
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
       child: Column(
         children: [
           Container(
             height: 4,
-            width: 120,
+            width: 160,
             decoration: BoxDecoration(
               color: AppColors.brandPrimary,
               borderRadius: BorderRadius.circular(AppRadius.xs),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.brandPrimary.withOpacity(0.5),
+                  blurRadius: 8,
+                  spreadRadius: 1,
+                ),
+              ],
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            'MÀN HÌNH',
+            'MÀN HÌNH CHIẾU',
             style: AppTypography.captionStrong.copyWith(
-              color: AppColors.brandPrimary,
+              color: AppColors.textMuted,
+              letterSpacing: 2.0,
             ),
           ),
         ],
