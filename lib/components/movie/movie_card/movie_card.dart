@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
-
 import '../../../design_system/tokens/index.dart';
 import '../../../models/movie.dart';
 import '../../ui/index.dart';
 
 enum MovieCardLayout { grid, horizontal }
 
+/*
+ * Component MovieCard:
+ * Hiển thị thẻ thông tin phim theo hai dạng bố cục Grid (dọc) hoặc Horizontal (ngang).
+ * Đồng bộ hóa dữ liệu trực tiếp từ MoviePublicDto nhận từ API Backend.
+ */
 class MovieCard extends StatelessWidget {
-  final Movie movie;
+  final MoviePublicDto movie;
   final String heroTag;
   final MovieCardLayout layout;
   final VoidCallback onPressed;
@@ -23,32 +27,41 @@ class MovieCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (layout == MovieCardLayout.horizontal) {
-      return AppCard(
-        pressable: true,
-        onPressed: onPressed,
-        padding: AppCardPadding.sm,
-        child: Row(
-          children: [
-            SizedBox(
-              width: 82,
-              child: Hero(
-                tag: heroTag,
-                child: MoviePoster(movie: movie),
-              ),
-            ),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(child: _MovieSummary(movie: movie)),
-            const SizedBox(width: AppSpacing.sm),
-            const Icon(
-              Icons.chevron_right,
-              color: AppColors.textMuted,
-              size: 22,
-            ),
-          ],
-        ),
-      );
+      return _buildHorizontalLayout();
     }
+    return _buildGridLayout();
+  }
 
+  Widget _buildHorizontalLayout() {
+    return AppCard(
+      pressable: true,
+      onPressed: onPressed,
+      padding: AppCardPadding.sm,
+      child: Row(
+        children: [
+          SizedBox(
+            width: 82,
+            child: Hero(
+              tag: heroTag,
+              child: MoviePoster(movie: movie),
+            ),
+          ),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: _MovieSummary(movie: movie),
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          const Icon(
+            Icons.chevron_right,
+            color: AppColors.textMuted,
+            size: 22,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGridLayout() {
     return AppCard(
       pressable: true,
       onPressed: onPressed,
@@ -70,11 +83,20 @@ class MovieCard extends StatelessWidget {
   }
 }
 
+/*
+ * Component MoviePoster:
+ * Cắt bo góc và cố định tỷ lệ khung hình 2:3 chuẩn cho poster phim.
+ * Cho phép truyền height thủ công nếu giao diện cha yêu cầu kích thước cố định.
+ */
 class MoviePoster extends StatelessWidget {
-  final Movie movie;
+  final MoviePublicDto movie;
   final double? height;
 
-  const MoviePoster({super.key, required this.movie, this.height});
+  const MoviePoster({
+    super.key,
+    required this.movie,
+    this.height,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -91,27 +113,34 @@ class MoviePoster extends StatelessWidget {
   }
 }
 
+/*
+ * Component _PosterImage:
+ * Nhận diện nguồn ảnh poster để hiển thị (từ local assets hoặc link mạng).
+ * Tự động hiển thị khung xương skeleton khi đang tải hoặc chuyển hướng sang fallback UI khi gặp lỗi.
+ */
 class _PosterImage extends StatelessWidget {
-  final Movie movie;
+  final MoviePublicDto movie;
 
   const _PosterImage({required this.movie});
 
   @override
   Widget build(BuildContext context) {
-    if (movie.posterUrl.isEmpty) {
+    final url = movie.posterUrl;
+
+    if (url == null || url.isEmpty) {
       return _PosterFallback(movie: movie);
     }
 
-    if (movie.posterUrl.startsWith('assets/')) {
+    if (url.startsWith('assets/')) {
       return Image.asset(
-        movie.posterUrl,
+        url,
         fit: BoxFit.cover,
         errorBuilder: (_, _, _) => _PosterFallback(movie: movie),
       );
     }
 
     return Image.network(
-      movie.posterUrl,
+      url,
       fit: BoxFit.cover,
       loadingBuilder: (context, child, loadingProgress) {
         if (loadingProgress == null) return child;
@@ -122,8 +151,13 @@ class _PosterImage extends StatelessWidget {
   }
 }
 
+/*
+ * Component _PosterFallback:
+ * Giao diện thay thế dự phòng khi hình ảnh từ API trống hoặc bị lỗi mạng.
+ * Tạo background gradient dựa trên thuộc tính màu sắc động của bộ phim.
+ */
 class _PosterFallback extends StatelessWidget {
-  final Movie movie;
+  final MoviePublicDto movie;
 
   const _PosterFallback({required this.movie});
 
@@ -143,7 +177,7 @@ class _PosterFallback extends StatelessWidget {
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
                 colors: [
-                  movie.accent.withAlpha(184),
+                  movie.accentColor.withAlpha(184),
                   AppColors.bgSurface,
                   AppColors.bgApp,
                 ],
@@ -182,11 +216,18 @@ class _PosterFallback extends StatelessWidget {
   }
 }
 
+/*
+ * Component _MovieSummary:
+ * Khối văn bản hiển thị tiêu đề, thể loại, thời lượng và nhãn trạng thái của phim.
+ */
 class _MovieSummary extends StatelessWidget {
-  final Movie movie;
+  final MoviePublicDto movie;
   final bool compact;
 
-  const _MovieSummary({required this.movie, this.compact = false});
+  const _MovieSummary({
+    required this.movie,
+    this.compact = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -203,10 +244,12 @@ class _MovieSummary extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.xs),
         Text(
-          movie.genre,
+          movie.genre ?? 'N/A',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: AppTypography.caption.copyWith(color: AppColors.textSecondary),
+          style: AppTypography.caption.copyWith(
+            color: AppColors.textSecondary,
+          ),
         ),
         const SizedBox(height: AppSpacing.sm),
         Wrap(
@@ -214,18 +257,17 @@ class _MovieSummary extends StatelessWidget {
           runSpacing: AppSpacing.xs,
           children: [
             AppBadge(
-              label: movie.duration,
+              label: movie.durationFormatted,
               icon: const Icon(Icons.schedule),
               backgroundColor: AppColors.bgSurface2,
             ),
-            AppBadge(
-              label: movie.detailLabel.isEmpty
-                  ? movie.status
-                  : movie.detailLabel,
-              backgroundColor: AppColors.brandPrimarySoft,
-              foregroundColor: AppColors.textPrimary,
-              borderColor: AppColors.brandPrimary,
-            ),
+            if (movie.status != null && movie.status!.isNotEmpty)
+              AppBadge(
+                label: movie.status!,
+                backgroundColor: AppColors.brandPrimarySoft,
+                foregroundColor: AppColors.textPrimary,
+                borderColor: AppColors.brandPrimary,
+              ),
           ],
         ),
       ],

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-
 import '../api/services/cinema_api.dart';
 import '../api/services/movie_api.dart';
 import '../api/services/voucher_api.dart';
@@ -13,9 +12,15 @@ import '../models/cinema.dart';
 import '../models/movie.dart';
 import '../models/news_item.dart';
 import '../models/voucher.dart';
+import '../api/payload/api_response.dart';
 
+/*
+ * Màn hình HomeScreen:
+ * Trang chủ chính của ứng dụng quản lý việc gọi song song các API từ hệ thống.
+ * Tích hợp cơ chế kéo để làm mới (Pull-to-refresh) và giữ lại trạng thái màn hình (AutomaticKeepAliveClientMixin).
+ */
 class HomeScreen extends StatefulWidget {
-  final void Function(Movie movie, String heroTag) onMovieTap;
+  final void Function(MoviePublicDto movie, String heroTag) onMovieTap;
   final VoidCallback? onBrowseRequested;
   final VoidCallback? onVoucherRequested;
   final VoidCallback? onTicketsRequested;
@@ -32,17 +37,22 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
+/*
+ * Trạng thái của HomeScreen:
+ * Khởi tạo trực tiếp các thực thể API Service không sử dụng hằng số 'const'.
+ * Thực hiện ép kiểu tường minh dữ liệu trả về từ luồng xử lý bất đồng bộ tập trung Future.wait.
+ */
 class _HomeScreenState extends State<HomeScreen>
     with AutomaticKeepAliveClientMixin<HomeScreen> {
-  final MovieApi _movieApi = const MovieApi();
-  final CinemaApi _cinemaApi = const CinemaApi();
-  final VoucherApi _voucherApi = const VoucherApi();
+  final MovieApi _movieApi = MovieApi();
+  final CinemaApi _cinemaApi = CinemaApi();
+  final VoucherApi _voucherApi = VoucherApi();
 
   bool _loading = true;
   Object? _error;
-  List<Movie> _featured = const <Movie>[];
-  List<Movie> _nowPlaying = const <Movie>[];
-  List<Movie> _comingSoon = const <Movie>[];
+  List<MoviePublicDto> _featured = const <MoviePublicDto>[];
+  List<MoviePublicDto> _nowPlaying = const <MoviePublicDto>[];
+  List<MoviePublicDto> _comingSoon = const <MoviePublicDto>[];
   List<Cinema> _cinemas = const <Cinema>[];
   List<Voucher> _vouchers = const <Voucher>[];
   List<NewsItem> _news = const <NewsItem>[];
@@ -73,13 +83,21 @@ class _HomeScreenState extends State<HomeScreen>
       ]);
 
       if (!mounted) return;
+
+      final featuredRes = responses[0] as ApiResponse<List<MoviePublicDto>>;
+      final nowPlayingRes = responses[1] as ApiResponse<List<MoviePublicDto>>;
+      final comingSoonRes = responses[2] as ApiResponse<List<MoviePublicDto>>;
+      final cinemasRes = responses[3] as ApiResponse<List<Cinema>>;
+      final vouchersRes = responses[4] as ApiResponse<List<Voucher>>;
+      final newsRes = responses[5] as ApiResponse<List<NewsItem>>;
+
       setState(() {
-        _featured = responses[0].data as List<Movie>;
-        _nowPlaying = responses[1].data as List<Movie>;
-        _comingSoon = responses[2].data as List<Movie>;
-        _cinemas = responses[3].data as List<Cinema>;
-        _vouchers = responses[4].data as List<Voucher>;
-        _news = responses[5].data as List<NewsItem>;
+        _featured = featuredRes.data ?? const <MoviePublicDto>[];
+        _nowPlaying = nowPlayingRes.data ?? const <MoviePublicDto>[];
+        _comingSoon = comingSoonRes.data ?? const <MoviePublicDto>[];
+        _cinemas = cinemasRes.data ?? const <Cinema>[];
+        _vouchers = vouchersRes.data ?? const <Voucher>[];
+        _news = newsRes.data ?? const <NewsItem>[];
         _loading = false;
       });
     } catch (error) {
@@ -139,10 +157,10 @@ class _HomeScreenState extends State<HomeScreen>
 
     final hasContent =
         _featured.isNotEmpty ||
-        _nowPlaying.isNotEmpty ||
-        _comingSoon.isNotEmpty ||
-        _vouchers.isNotEmpty ||
-        _cinemas.isNotEmpty;
+            _nowPlaying.isNotEmpty ||
+            _comingSoon.isNotEmpty ||
+            _vouchers.isNotEmpty ||
+            _cinemas.isNotEmpty;
 
     if (!hasContent) {
       return AppEmptyState(
@@ -247,10 +265,10 @@ class _HomeScreenState extends State<HomeScreen>
                 .take(2)
                 .map(
                   (cinema) => Padding(
-                    padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                    child: CinemaCard(cinema: cinema),
-                  ),
-                )
+                padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                child: CinemaCard(cinema: cinema),
+              ),
+            )
                 .toList(growable: false),
           ),
       ],
@@ -258,6 +276,10 @@ class _HomeScreenState extends State<HomeScreen>
   }
 }
 
+/*
+ * Component _QuickActions:
+ * Hiển thị một hàng ngang chứa 3 nút truy cập nhanh: Phim, Voucher, Vé đã mua.
+ */
 class _QuickActions extends StatelessWidget {
   final VoidCallback? onMovies;
   final VoidCallback? onVouchers;
@@ -291,6 +313,10 @@ class _QuickActions extends StatelessWidget {
   }
 }
 
+/*
+ * Component _QuickAction:
+ * Ô lựa chọn đơn lẻ nằm trong hàng ngang QuickActions với hiệu ứng hover và bo góc đồng bộ.
+ */
 class _QuickAction extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -324,10 +350,14 @@ class _QuickAction extends StatelessWidget {
   }
 }
 
+/*
+ * Component _HorizontalMovies:
+ * Danh sách hiển thị danh sách phim theo chiều ngang có hỗ trợ scroll kéo thả mượt mà.
+ */
 class _HorizontalMovies extends StatelessWidget {
-  final List<Movie> movies;
+  final List<MoviePublicDto> movies;
   final String tagPrefix;
-  final void Function(Movie movie, String heroTag) onMovieTap;
+  final void Function(MoviePublicDto movie, String heroTag) onMovieTap;
 
   const _HorizontalMovies({
     required this.movies,

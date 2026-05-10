@@ -1,8 +1,15 @@
+import 'dart:io';
+
 import 'package:dio/dio.dart' show BaseOptions, Dio, DioException, InterceptorsWrapper;
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiClient {
-  static const String baseUrl = 'http://localhost:8080/api';
+  // em cấu hình để test trên máy thật của em thôi nhe
+  static const bool device = true;
+  static String get baseUrl => (device && !kIsWeb && Platform.isAndroid)
+      ? 'http://192.168.123.7:8080/api'
+      : (Platform.isAndroid ? 'http://10.0.2.2:8080/api' : 'http://localhost:8080/api');
   
   final Dio _dio = Dio(
     BaseOptions(

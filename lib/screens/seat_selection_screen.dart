@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-
 import '../api/services/booking_api.dart';
 import '../components/booking/index.dart';
 import '../components/ui/index.dart';
@@ -10,8 +9,13 @@ import '../models/movie.dart';
 import '../models/showtime.dart';
 import '../utils/app_notifier.dart';
 
+/*
+ * Màn hình SeatSelectionScreen:
+ * Quản lý trực quan sơ đồ phòng chiếu, cho phép người dùng lựa chọn ghế trống (Normal hoặc VIP).
+ * Tích hợp tính năng giữ ghế (hold seats) thông qua BookingApi trước khi chuyển sang bước tiếp theo.
+ */
 class SeatSelectionScreen extends StatefulWidget {
-  final Movie movie;
+  final MoviePublicDto movie;
   final Showtime showtime;
   final Cinema cinema;
 
@@ -38,15 +42,11 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
 
   final BookingApi _bookingApi = const BookingApi();
   final Set<String> _selectedSeats = <String>{};
+
   final Set<String> _vipSeats = {
-    'E5',
-    'E6',
-    'E7',
-    'E8',
-    'F5',
-    'F6',
-    'F7',
-    'F8',
+    'D3', 'D4', 'D5', 'D6',
+    'E3', 'E4', 'E5', 'E6',
+    'F3', 'F4', 'F5', 'F6',
   };
 
   bool _loading = true;
@@ -157,7 +157,7 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
       context,
       title: 'Đã giữ ghế',
       description:
-          '${widget.movie.title} · ${_selectedSeatLabels.join(', ')} sẵn sàng thanh toán.',
+      '${widget.movie.title} · ${_selectedSeatLabels.join(', ')} sẵn sàng thanh toán.',
     );
   }
 
@@ -184,9 +184,7 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
                 backgroundColor: AppColors.bgSurface,
                 onRefresh: _loadSeatMap,
                 child: CustomScrollView(
-                  physics: const BouncingScrollPhysics(
-                    parent: AlwaysScrollableScrollPhysics(),
-                  ),
+                  physics: const AlwaysScrollableScrollPhysics(),
                   slivers: [
                     SliverToBoxAdapter(
                       child: Padding(
@@ -211,11 +209,11 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
       ),
       bottomNavigationBar: !_loading && _error == null && _hasAvailableSeat
           ? BookingFooter(
-              selectedSeats: _selectedSeatLabels,
-              totalPrice: _formatPrice(_totalPrice),
-              fallbackPrice: widget.showtime.price,
-              onContinue: _holding ? () {} : _completeSelection,
-            )
+        selectedSeats: _selectedSeatLabels,
+        totalPrice: _formatPrice(_totalPrice),
+        fallbackPrice: widget.showtime.price,
+        onContinue: _holding ? () {} : _completeSelection,
+      )
           : null,
     );
   }
@@ -266,13 +264,16 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
         const SeatLegend(),
         const SizedBox(height: AppSpacing.lg),
         AppCard(
-          padding: AppCardPadding.md,
-          child: SeatGrid(
-            blueprint: _seatBlueprint,
-            selectedSeats: _selectedSeats,
-            bookedSeats: _bookedSeats,
-            vipSeats: _vipSeats,
-            onSeatPressed: _toggleSeat,
+          padding: AppCardPadding.sm, // Sửa thành AppCardPadding.sm của hệ thống để hết lỗi đỏ
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: SeatGrid(
+              blueprint: _seatBlueprint,
+              selectedSeats: _selectedSeats,
+              bookedSeats: _bookedSeats,
+              vipSeats: _vipSeats,
+              onSeatPressed: _toggleSeat,
+            ),
           ),
         ),
       ],
@@ -280,13 +281,13 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
   }
 
   String _formatPrice(int amount) {
-    if (amount <= 0) return '0k';
-    return '${(amount / 1000).round()}k';
+    if (amount <= 0) return '0đ';
+    return '${amount.toString().replaceAllMapped(RegExp(r"(\d{1,3})(?=(\d{3})+(?!\d))"), (Match m) => "${m[1]}.")}đ';
   }
 }
 
 class _BookingSummary extends StatelessWidget {
-  final Movie movie;
+  final MoviePublicDto movie;
   final Showtime showtime;
   final Cinema cinema;
 
@@ -327,16 +328,27 @@ class _BookingSummary extends StatelessWidget {
             children: [
               AppBadge(
                 label: showtime.dateLabel,
-                icon: const Icon(Icons.event),
+                icon: const Icon(Icons.event, size: 14),
+                backgroundColor: Colors.transparent,
+                borderColor: AppColors.borderDefault,
               ),
-              AppBadge(label: showtime.time, icon: const Icon(Icons.schedule)),
+              AppBadge(
+                label: showtime.time,
+                icon: const Icon(Icons.schedule, size: 14),
+                backgroundColor: Colors.transparent,
+                borderColor: AppColors.borderDefault,
+              ),
               AppBadge(
                 label: showtime.screen,
-                icon: const Icon(Icons.meeting_room_outlined),
+                icon: const Icon(Icons.meeting_room_outlined, size: 14),
+                backgroundColor: Colors.transparent,
+                borderColor: AppColors.borderDefault,
               ),
               AppBadge(
                 label: showtime.price,
-                icon: const Icon(Icons.payments_outlined),
+                icon: const Icon(Icons.payments_outlined, size: 14),
+                backgroundColor: Colors.transparent,
+                borderColor: AppColors.borderDefault,
               ),
             ],
           ),
@@ -351,23 +363,32 @@ class _ScreenIndicator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AppCard(
-      padding: AppCardPadding.md,
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
       child: Column(
         children: [
           Container(
             height: 4,
-            width: 120,
+            width: 160,
             decoration: BoxDecoration(
               color: AppColors.brandPrimary,
               borderRadius: BorderRadius.circular(AppRadius.xs),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.brandPrimary.withOpacity(0.5),
+                  blurRadius: 8,
+                  spreadRadius: 1,
+                ),
+              ],
             ),
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            'MÀN HÌNH',
+            'MÀN HÌNH CHIẾU',
             style: AppTypography.captionStrong.copyWith(
-              color: AppColors.brandPrimary,
+              color: AppColors.textMuted,
+              letterSpacing: 2.0,
             ),
           ),
         ],
