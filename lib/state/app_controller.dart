@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../api/services/user_api.dart';
+import '../core/api_client.dart'; // Import ApiClient
 import '../data/services/auth_service.dart';
 import '../models/app_account.dart';
 import '../models/profile.dart';
 
 class AppController extends ChangeNotifier {
   final AuthService _authService = AuthService();
+  final UserApi _userApi = UserApi();
+  
   ThemeMode _themeMode = ThemeMode.system;
   AppAccount? _currentAccount;
   bool _isInitialized = false;
@@ -22,85 +26,79 @@ class AppController extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Hàm tự động kiểm tra Token khi khởi động App
-  Future<void> checkAuth() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('jwt_token');
-
-    if (token != null) {
-      // Giả lập trạng thái đã đăng nhập nếu tìm thấy token
+  // Tải thông tin người dùng thực từ API và cập nhật vào AppAccount
+  Future<void> reloadAccount() async {
+    try {
+      final response = await _userApi.getCurrentUser();
+      final profile = response.data;
+      
       _currentAccount = AppAccount(
-        id: 'temp_id',
-        email: 'user@example.com',
+        id: profile.id.toString(), 
+        email: profile.email,
         password: '',
-        role: AppUserRole.customer,
-        roleLabel: 'Khách hàng',
-        roleTitle: 'Thành viên Cinema',
-        leftStatLabel: 'Vé đã đặt',
-        leftStatValue: '0',
-        rightStatLabel: 'Điểm tích lũy',
-        rightStatValue: '0',
-        profile: const ProfileUser(
-          name: 'Người dùng',
-          email: 'user@example.com',
-          membership: 'Thành viên',
-          phone: '',
-          points: 0,
-          tierProgress: 0.0,
-          favoriteGenre: 'Hành động',
-          memberSince: '2024',
-        ),
+        role: (profile.roleId == 1 || profile.roleId == 2) 
+            ? AppUserRole.staff 
+            : AppUserRole.customer,
+        roleLabel: profile.position ?? profile.membership,
+        roleTitle: profile.roleId == 1 
+            ? 'Quản trị viên' 
+            : (profile.roleId == 2 ? 'Quản lý hệ thống' : 'Thành viên Cinema'),
+        leftStatLabel: 'Điểm',
+        leftStatValue: '${profile.points}',
+        rightStatLabel: 'Hạng',
+        rightStatValue: profile.membership,
+        profile: profile,
       );
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Reload Account Error: $e');
     }
-    _isInitialized = true;
-    notifyListeners();
+  }
+
+  Future<void> checkAuth() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('jwt_token');
+
+      if (token != null && token.isNotEmpty) {
+        // ĐỒNG BỘ TOKEN VÀO RAM NGAY LẬP TỨC
+        ApiClient.setToken(token);
+        await reloadAccount();
+      }
+    } catch (e) {
+      debugPrint('Check Auth Error: $e');
+    } finally {
+      _isInitialized = true;
+      notifyListeners();
+    }
   }
 
   Future<bool> login(String email, String password) async {
     try {
       final tokens = await _authService.login(email, password);
-
       if (tokens != null) {
-        _currentAccount = AppAccount(
-          id: 'temp_id',
-          email: email,
-          password: password,
-          role: AppUserRole.customer,
-          roleLabel: 'Khách hàng',
-          roleTitle: 'Thành viên Cinema',
-          leftStatLabel: 'Vé đã đặt',
-          leftStatValue: '0',
-          rightStatLabel: 'Điểm tích lũy',
-          rightStatValue: '0',
-          // KHÔNG dùng 'const' ở đây vì 'email' là biến truyền vào từ hàm
-          profile: ProfileUser(
-            name: 'Người dùng',
-            email: email,
-            membership: 'Thành viên',
-            phone: '',
-            points: 0,
-            tierProgress: 0.0,
-            favoriteGenre: 'Hành động',
-            memberSince: '2024',
-          ),
-        );
-        notifyListeners();
+        final accessToken = tokens['accessToken'] ?? tokens['token'];
+        // ĐỒNG BỘ TOKEN VÀO RAM NGAY SAU KHI ĐĂNG NHẬP
+        ApiClient.setToken(accessToken);
+        
+        await reloadAccount();
         return true;
       }
     } catch (e) {
-      debugPrint('Login failed in AppController: $e');
+      debugPrint('Login failed: $e');
     }
     return false;
   }
 
-  void loginAs(AppAccount account) {
-    _currentAccount = account;
-    notifyListeners();
-  }
-
   void logout() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('jwt_token');
+    await prefs.remove('refresh_token');
+    
+    // XÓA TOKEN KHỎI RAM
+    ApiClient.setToken(null);
+
     _currentAccount = null;
-    await _authService.logout();
     notifyListeners();
   }
 }

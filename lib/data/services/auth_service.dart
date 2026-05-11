@@ -1,6 +1,7 @@
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/api_client.dart';
+import '../../api/client/endpoints.dart';
 
 class AuthService {
   final ApiClient _apiClient = ApiClient();
@@ -8,7 +9,8 @@ class AuthService {
   // 1. LOGIN
   Future<Map<String, dynamic>?> login(String email, String password) async {
     try {
-      final response = await _apiClient.dio.post('/auth/login', data: {
+      // Sử dụng ApiEndpoints thay vì text cứng có dấu /
+      final response = await _apiClient.dio.post(ApiEndpoints.login, data: {
         'email': email,
         'password': password,
       });
@@ -19,9 +21,16 @@ class AuthService {
         
         if (tokens != null) {
           final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('jwt_token', tokens['accessToken'] ?? '');
-          await prefs.setString('refresh_token', tokens['refreshToken'] ?? '');
-          return tokens;
+          // Thử lấy token từ nhiều key có thể xảy ra từ Backend
+          final String accessToken = tokens['accessToken'] ?? tokens['token'] ?? '';
+          final String refreshToken = tokens['refreshToken'] ?? tokens['refresh_token'] ?? '';
+          
+          if (accessToken.isNotEmpty) {
+            await prefs.setString('jwt_token', accessToken);
+            await prefs.setString('refresh_token', refreshToken);
+            print('--- Login Success: Token saved ---');
+            return tokens;
+          }
         }
       }
     } on DioException catch (e) {
@@ -31,80 +40,14 @@ class AuthService {
     return null;
   }
 
-  // 2. REGISTER - Send OTP
-  Future<void> sendRegisterOtp(String email) async {
-    await _apiClient.dio.post('/auth/register/send-otp', data: {
-      'email': email,
-    });
-  }
-
-  // 3. REGISTER - Verify & Create Account
-  Future<void> verifyRegister({
-    required String email,
-    required String fullName,
-    required String password,
-    required String phone,
-    required String otp,
-  }) async {
-    await _apiClient.dio.post('/auth/register/verify', data: {
-      'email': email,
-      'fullName': fullName,
-      'password': password,
-      'phone': phone,
-      'otp': otp,
-    });
-  }
-
-  // 4. FORGOT PASSWORD - Send OTP
-  Future<void> sendForgotOtp(String email) async {
-    await _apiClient.dio.post('/auth/forgot/send-otp', data: {
-      'email': email,
-    });
-  }
-
-  // 5. FORGOT PASSWORD - Verify & Reset
-  Future<void> resetPassword({
-    required String email,
-    required String otp,
-    required String newPassword,
-  }) async {
-    await _apiClient.dio.post('/auth/forgot/verify', data: {
-      'email': email,
-      'otp': otp,
-      'newPassword': newPassword,
-    });
-  }
-
-  // 6. REFRESH TOKEN
-  Future<String?> refreshToken() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final rToken = prefs.getString('refresh_token');
-      if (rToken == null) return null;
-
-      final response = await _apiClient.dio.post('/auth/refresh', data: {
-        'refreshToken': rToken,
-      });
-
-      if (response.statusCode == 200) {
-        final newToken = response.data['data']['accessToken'];
-        await prefs.setString('jwt_token', newToken);
-        return newToken;
-      }
-    } catch (e) {
-      print('Refresh Token Error: $e');
-    }
-    return null;
-  }
-
-  // 7. LOGOUT
+  // 2. LOGOUT
   Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
     final rToken = prefs.getString('refresh_token');
     
     try {
-      if (rToken != null) {
-        await _apiClient.dio.post('/auth/logout', data: {
+      if (rToken != null && rToken.isNotEmpty) {
+        await _apiClient.dio.post(ApiEndpoints.logout, data: {
           'refreshToken': rToken,
         });
       }
@@ -114,5 +57,10 @@ class AuthService {
       await prefs.remove('jwt_token');
       await prefs.remove('refresh_token');
     }
+  }
+
+  // Thêm các phương thức khác sử dụng ApiEndpoints...
+  Future<void> sendRegisterOtp(String email) async {
+    await _apiClient.dio.post(ApiEndpoints.registerSendOtp, data: {'email': email});
   }
 }
