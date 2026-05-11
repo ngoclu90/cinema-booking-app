@@ -8,6 +8,7 @@ class SeatGrid extends StatelessWidget {
   final Set<String> selectedSeats;
   final Set<String> bookedSeats;
   final Set<String> vipSeats;
+  final Set<String> coupleSeats;
   final ValueChanged<String> onSeatPressed;
 
   const SeatGrid({
@@ -16,6 +17,7 @@ class SeatGrid extends StatelessWidget {
     required this.selectedSeats,
     required this.bookedSeats,
     this.vipSeats = const <String>{},
+    this.coupleSeats = const <String>{},
     required this.onSeatPressed,
   });
 
@@ -25,10 +27,24 @@ class SeatGrid extends StatelessWidget {
       builder: (context, constraints) {
         const rowLabelWidth = 22.0;
         const gap = 6.0;
-        final seatSlots = blueprint.first.length;
+        final seatSlots = blueprint.fold<int>(0, (maxSlots, row) {
+          var slots = 0;
+          for (final seat in row) {
+            if (seat == null) {
+              slots += 1;
+              continue;
+            }
+            slots += coupleSeats.contains(seat) ? 2 : 1;
+          }
+          return slots > maxSlots ? slots : maxSlots;
+        });
+        final seatGaps = blueprint.fold<int>(0, (maxGaps, row) {
+          final gaps = row.whereType<String>().length;
+          return gaps > maxGaps ? gaps : maxGaps;
+        });
         final seatSize =
-            ((constraints.maxWidth - rowLabelWidth - (seatSlots * gap)) /
-                    seatSlots)
+            ((constraints.maxWidth - rowLabelWidth - (seatGaps * gap)) /
+                    (seatSlots == 0 ? 1 : seatSlots))
                 .clamp(28.0, 36.0);
 
         return Column(
@@ -53,10 +69,11 @@ class SeatGrid extends StatelessWidget {
                         if (seat == null) {
                           return SizedBox(width: seatSize * 0.72);
                         }
+                        final isCouple = coupleSeats.contains(seat);
                         return Padding(
                           padding: const EdgeInsets.only(right: gap),
                           child: SizedBox(
-                            width: seatSize,
+                            width: isCouple ? (seatSize * 2) : seatSize,
                             height: seatSize,
                             child: SeatItem(
                               code: seat,
@@ -80,6 +97,7 @@ class SeatGrid extends StatelessWidget {
     if (bookedSeats.contains(seat)) return SeatStatus.booked;
     if (selectedSeats.contains(seat)) return SeatStatus.selected;
     if (vipSeats.contains(seat)) return SeatStatus.vip;
+    if (coupleSeats.contains(seat)) return SeatStatus.couple;
     return SeatStatus.available;
   }
 }

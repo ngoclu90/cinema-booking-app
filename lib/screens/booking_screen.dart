@@ -1,11 +1,15 @@
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import '../api/services/booking_api.dart';
+import '../data/services/combo_service.dart';
+import '../models/combo.dart';
 import '../models/movie.dart';
 import '../models/showtime.dart';
 import '../theme/app_theme.dart';
 import '../theme/design_tokens.dart';
 import '../utils/app_notifier.dart';
+import '../utils/image_helper.dart';
 
 /*
  * Màn hình BookingScreen:
@@ -16,11 +20,27 @@ import '../utils/app_notifier.dart';
 class BookingScreen extends StatefulWidget {
   final MoviePublicDto movie;
   final Showtime showtime;
+  final int userId;
+  final List<String> initialSelectedSeats;
+  final List<int> initialSeatIds;
+  final int initialSeatTotal;
+  final int initialStep;
+  final bool skipSeatStep;
+  final DateTime? holdExpiresAt;
+  final String? holdToken;
 
   const BookingScreen({
     super.key,
     required this.movie,
     required this.showtime,
+    this.userId = 0,
+    this.initialSelectedSeats = const <String>[],
+    this.initialSeatIds = const <int>[],
+    this.initialSeatTotal = 0,
+    this.initialStep = 0,
+    this.skipSeatStep = false,
+    this.holdExpiresAt,
+    this.holdToken,
   });
 
   @override
@@ -41,18 +61,15 @@ class _BookingScreenState extends State<BookingScreen> {
 
   static const String _cinemaName = 'Beta Two Sài Gòn Center';
 
-  final List<_ComboOption> _combos = const [
-    _ComboOption(name: 'Combo Couple', detail: '1 bắp + 2 nước', price: 99000),
-    _ComboOption(name: 'Combo Family', detail: '2 bắp + 4 nước', price: 189000),
-    _ComboOption(name: 'Combo Snack', detail: 'Nachos + 1 nước', price: 79000),
-  ];
+  final ComboService _comboService = ComboService();
+  final BookingApi _bookingApi = BookingApi();
+  List<Combo> _combos = const <Combo>[];
+  bool _comboLoading = true;
+  Object? _comboError;
 
   final List<String> _paymentMethods = const [
-    'Ví MoMo',
-    'ZaloPay',
-    'Thẻ Visa/MasterCard',
-    'Apple Pay',
-    'Thanh toán tại quầy',
+    'MoMo',
+    'VNPay',
   ];
 
   final Set<String> _lockedSeats = const {
@@ -69,7 +86,11 @@ class _BookingScreenState extends State<BookingScreen> {
 
   final TextEditingController _promoController = TextEditingController();
   final Set<String> _selectedSeats = <String>{};
-  final Map<String, int> _comboQty = <String, int>{};
+  final List<int> _selectedSeatIds = <int>[];
+  final Map<int, int> _comboQty = <int, int>{};
+  int? _seatTotalOverride;
+  bool _calculating = false;
+  bool _creatingBooking = false;
 
   int _currentStep = 0;
   int _holdSeconds = 600;
@@ -82,6 +103,28 @@ class _BookingScreenState extends State<BookingScreen> {
   @override
   void initState() {
     super.initState();
+    if (widget.initialSelectedSeats.isNotEmpty) {
+      _selectedSeats.addAll(widget.initialSelectedSeats);
+    }
+
+    if (widget.initialSeatIds.isNotEmpty) {
+      _selectedSeatIds.addAll(widget.initialSeatIds);
+    }
+
+    if (widget.initialSeatTotal > 0) {
+      _seatTotalOverride = widget.initialSeatTotal;
+    }
+
+    _currentStep = widget.skipSeatStep && widget.initialStep == 0
+        ? 1
+        : widget.initialStep;
+    if (widget.holdExpiresAt != null) {
+      final remaining = widget.holdExpiresAt!
+          .difference(DateTime.now())
+          .inSeconds;
+      _holdSeconds = remaining > 0 ? remaining : 0;
+    }
+    _loadCombos();
     _startHoldCountdown();
   }
 
@@ -94,14 +137,37 @@ class _BookingScreenState extends State<BookingScreen> {
 
   int get _ticketUnitPrice => _parsePrice(widget.showtime.price);
 
-  int get _seatTotal => _selectedSeats.length * _ticketUnitPrice;
+  int get _seatTotal =>
+      _seatTotalOverride ?? (_selectedSeats.length * _ticketUnitPrice);
 
   int get _comboTotal {
     var total = 0;
     for (final combo in _combos) {
-      total += combo.price * (_comboQty[combo.name] ?? 0);
+      total += combo.price * (_comboQty[combo.id] ?? 0);
     }
     return total;
+  }
+
+  Future<void> _loadCombos() async {
+    setState(() {
+      _comboLoading = true;
+      _comboError = null;
+    });
+
+    try {
+      final response = await _comboService.getCombos();
+      if (!mounted) return;
+      setState(() {
+        _combos = response?.data ?? const <Combo>[];
+        _comboLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _comboError = error;
+        _comboLoading = false;
+      });
+    }
   }
 
   int get _subtotal => _seatTotal + _comboTotal;
@@ -154,7 +220,9 @@ class _BookingScreenState extends State<BookingScreen> {
 
   Widget _buildHeader(BuildContext context) {
     final isSeatStep = _currentStep == 0;
+    final isPaymentStep = _currentStep == 2;
     final title = isSeatStep ? 'Chọn Ghế' : _stepTitles[_currentStep];
+    final showHoldTimer = widget.holdExpiresAt != null;
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppSpacing.xs,
@@ -165,7 +233,7 @@ class _BookingScreenState extends State<BookingScreen> {
       child: Row(
         children: [
           IconButton(
-            onPressed: _handleBack,
+            onPressed: isPaymentStep ? null : _handleBack,
             icon: const Icon(Icons.arrow_back_ios_new_rounded),
             tooltip: 'Quay lại',
           ),
@@ -173,41 +241,61 @@ class _BookingScreenState extends State<BookingScreen> {
             child: Text(
               title,
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
             ),
           ),
-          if (isSeatStep)
-            Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.sm,
-                vertical: AppSpacing.xs,
-              ),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-                color: Theme.of(context).colorScheme.primary.withAlphaPercent(0.14),
-                border: Border.all(
-                  color: Theme.of(context).colorScheme.primary.withAlphaPercent(0.34),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.timer_outlined,
-                    size: 16,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    _holdTimeLabel,
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: Theme.of(context).colorScheme.primary,
-                      fontWeight: FontWeight.w700,
+          if (showHoldTimer)
+            Row(
+              children: [
+                if (!isSeatStep)
+                  Padding(
+                    padding: const EdgeInsets.only(right: AppSpacing.sm),
+                    child: Text(
+                      'Bước ${_currentStep + 1}/3',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.onSurface.withAlphaPercent(0.66),
+                      ),
                     ),
                   ),
-                ],
-              ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.sm,
+                    vertical: AppSpacing.xs,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(AppRadius.pill),
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.primary.withAlphaPercent(0.14),
+                    border: Border.all(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.primary.withAlphaPercent(0.34),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.timer_outlined,
+                        size: 16,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        _holdTimeLabel,
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             )
           else
             Padding(
@@ -215,7 +303,9 @@ class _BookingScreenState extends State<BookingScreen> {
               child: Text(
                 'Bước ${_currentStep + 1}/3',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurface.withAlphaPercent(0.66),
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.onSurface.withAlphaPercent(0.66),
                 ),
               ),
             ),
@@ -278,7 +368,9 @@ class _BookingScreenState extends State<BookingScreen> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurface.withAlphaPercent(0.76),
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withAlphaPercent(0.76),
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -286,14 +378,18 @@ class _BookingScreenState extends State<BookingScreen> {
                 Text(
                   widget.showtime.dateLabel,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurface.withAlphaPercent(0.62),
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withAlphaPercent(0.62),
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   '${widget.showtime.time} - ${widget.showtime.screen}',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurface.withAlphaPercent(0.62),
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withAlphaPercent(0.62),
                   ),
                 ),
               ],
@@ -305,6 +401,9 @@ class _BookingScreenState extends State<BookingScreen> {
   }
 
   Widget _buildMovieSummary(BuildContext context) {
+    final seatLabel = _selectedSeats.isEmpty
+        ? 'Chưa chọn'
+        : (_selectedSeats.toList()..sort()).join(', ');
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.md),
@@ -315,17 +414,31 @@ class _BookingScreenState extends State<BookingScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(widget.movie.title, style: Theme.of(context).textTheme.titleLarge),
+          Text(
+            widget.movie.title,
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
           const SizedBox(height: AppSpacing.xs),
           Text(
             '${widget.showtime.dateLabel} · ${widget.showtime.time} · ${widget.showtime.screen}',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: Theme.of(context).colorScheme.onSurface.withAlphaPercent(0.72),
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurface.withAlphaPercent(0.72),
             ),
           ),
           const SizedBox(height: AppSpacing.xs),
           Text(
-            'Giá vé: ${_formatCurrency(_ticketUnitPrice)} / ghế',
+            'Ghế: $seatLabel',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurface.withAlphaPercent(0.72),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Tiền vé: ${_formatCurrency(_seatTotal)}',
             style: Theme.of(context).textTheme.labelLarge,
           ),
         ],
@@ -356,9 +469,9 @@ class _BookingScreenState extends State<BookingScreen> {
           alignment: Alignment.center,
           child: Text(
             'Màn hình',
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              letterSpacing: 0.6,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.labelLarge?.copyWith(letterSpacing: 0.6),
           ),
         ),
         const SizedBox(height: AppSpacing.sm),
@@ -382,20 +495,21 @@ class _BookingScreenState extends State<BookingScreen> {
                   children: rows
                       .map(
                         (row) => SizedBox(
-                      height: row == 'E' ? 44 : 36,
-                      child: Center(
-                        child: Text(
-                          row,
-                          style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurface
-                                .withAlphaPercent(0.74),
+                          height: row == 'E' ? 44 : 36,
+                          child: Center(
+                            child: Text(
+                              row,
+                              style: Theme.of(context).textTheme.labelLarge
+                                  ?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurface
+                                        .withAlphaPercent(0.74),
+                                  ),
+                            ),
                           ),
                         ),
-                      ),
-                    ),
-                  )
+                      )
                       .toList(growable: false),
                 ),
               ),
@@ -405,27 +519,34 @@ class _BookingScreenState extends State<BookingScreen> {
                   physics: const BouncingScrollPhysics(),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: rows.map((row) {
-                      final cols = row == 'E' ? coupleCols : normalCols;
-                      final seatType = _seatTypeByRow(row);
-                      return SizedBox(
-                        height: row == 'E' ? 44 : 36,
-                        child: Row(
-                          children: cols.map((col) {
-                            final seatId = '$row$col';
-                            return Padding(
-                              padding: const EdgeInsets.only(right: 6, bottom: 6),
-                              child: _buildSeatCell(
-                                context,
-                                seatId: seatId,
-                                seatType: seatType,
-                                isCoupleSeat: row == 'E',
-                              ),
-                            );
-                          }).toList(growable: false),
-                        ),
-                      );
-                    }).toList(growable: false),
+                    children: rows
+                        .map((row) {
+                          final cols = row == 'E' ? coupleCols : normalCols;
+                          final seatType = _seatTypeByRow(row);
+                          return SizedBox(
+                            height: row == 'E' ? 44 : 36,
+                            child: Row(
+                              children: cols
+                                  .map((col) {
+                                    final seatId = '$row$col';
+                                    return Padding(
+                                      padding: const EdgeInsets.only(
+                                        right: 6,
+                                        bottom: 6,
+                                      ),
+                                      child: _buildSeatCell(
+                                        context,
+                                        seatId: seatId,
+                                        seatType: seatType,
+                                        isCoupleSeat: row == 'E',
+                                      ),
+                                    );
+                                  })
+                                  .toList(growable: false),
+                            ),
+                          );
+                        })
+                        .toList(growable: false),
                   ),
                 ),
               ),
@@ -437,11 +558,31 @@ class _BookingScreenState extends State<BookingScreen> {
           spacing: AppSpacing.sm,
           runSpacing: AppSpacing.sm,
           children: [
-            _legendItem(context, 'Ghế thường', _seatTypeColor(context, _SeatType.normal)),
-            _legendItem(context, 'Ghế VIP', _seatTypeColor(context, _SeatType.vip)),
-            _legendItem(context, 'Ghế đôi', _seatTypeColor(context, _SeatType.couple)),
-            _legendItem(context, 'Đang chọn', Theme.of(context).colorScheme.primary),
-            _legendItem(context, 'Đã đặt', Theme.of(context).colorScheme.onSurface.withAlphaPercent(0.18)),
+            _legendItem(
+              context,
+              'Ghế thường',
+              _seatTypeColor(context, _SeatType.normal),
+            ),
+            _legendItem(
+              context,
+              'Ghế VIP',
+              _seatTypeColor(context, _SeatType.vip),
+            ),
+            _legendItem(
+              context,
+              'Ghế đôi',
+              _seatTypeColor(context, _SeatType.couple),
+            ),
+            _legendItem(
+              context,
+              'Đang chọn',
+              Theme.of(context).colorScheme.primary,
+            ),
+            _legendItem(
+              context,
+              'Đã đặt',
+              Theme.of(context).colorScheme.onSurface.withAlphaPercent(0.18),
+            ),
           ],
         ),
       ],
@@ -449,11 +590,11 @@ class _BookingScreenState extends State<BookingScreen> {
   }
 
   Widget _buildSeatCell(
-      BuildContext context, {
-        required String seatId,
-        required _SeatType seatType,
-        required bool isCoupleSeat,
-      }) {
+    BuildContext context, {
+    required String seatId,
+    required _SeatType seatType,
+    required bool isCoupleSeat,
+  }) {
     final isLocked = _lockedSeats.contains(seatId);
     final isSelected = _selectedSeats.contains(seatId);
     final baseColor = _seatTypeColor(context, seatType);
@@ -464,14 +605,16 @@ class _BookingScreenState extends State<BookingScreen> {
         onTap: isLocked
             ? null
             : () {
-          setState(() {
-            if (isSelected) {
-              _selectedSeats.remove(seatId);
-            } else {
-              _selectedSeats.add(seatId);
-            }
-          });
-        },
+                setState(() {
+                  _seatTotalOverride = null;
+                  _selectedSeatIds.clear();
+                  if (isSelected) {
+                    _selectedSeats.remove(seatId);
+                  } else {
+                    _selectedSeats.add(seatId);
+                  }
+                });
+              },
         child: AnimatedContainer(
           duration: AppDurations.short,
           width: isCoupleSeat ? 56 : 26,
@@ -486,16 +629,20 @@ class _BookingScreenState extends State<BookingScreen> {
             border: Border.all(
               color: isSelected
                   ? Theme.of(context).colorScheme.primary
-                  : Theme.of(context).colorScheme.onSurface.withAlphaPercent(0.18),
+                  : Theme.of(
+                      context,
+                    ).colorScheme.onSurface.withAlphaPercent(0.18),
             ),
             boxShadow: isSelected
                 ? [
-              BoxShadow(
-                color: Theme.of(context).colorScheme.primary.withAlphaPercent(0.26),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ]
+                    BoxShadow(
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.primary.withAlphaPercent(0.26),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
+                    ),
+                  ]
                 : null,
           ),
           alignment: Alignment.center,
@@ -503,7 +650,9 @@ class _BookingScreenState extends State<BookingScreen> {
             seatId,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               fontWeight: FontWeight.w700,
-              color: isSelected ? Colors.white : Theme.of(context).colorScheme.onSurface,
+              color: isSelected
+                  ? Colors.white
+                  : Theme.of(context).colorScheme.onSurface,
             ),
           ),
         ),
@@ -522,17 +671,17 @@ class _BookingScreenState extends State<BookingScreen> {
       case _SeatType.normal:
         return Theme.of(context).colorScheme.secondary.withAlphaPercent(0.12);
       case _SeatType.vip:
-        return const Color(0xFFD79A34).withAlphaPercent(context.isDarkMode ? 0.26 : 0.18);
+        return const Color(
+          0xFFD79A34,
+        ).withAlphaPercent(context.isDarkMode ? 0.26 : 0.18);
       case _SeatType.couple:
-        return const Color(0xFFB14ED8).withAlphaPercent(context.isDarkMode ? 0.28 : 0.16);
+        return const Color(
+          0xFFB14ED8,
+        ).withAlphaPercent(context.isDarkMode ? 0.28 : 0.16);
     }
   }
 
-  Widget _legendItem(
-      BuildContext context,
-      String label,
-      Color color,
-      ) {
+  Widget _legendItem(BuildContext context, String label, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
@@ -553,9 +702,9 @@ class _BookingScreenState extends State<BookingScreen> {
           const SizedBox(width: 6),
           Text(
             label,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700),
           ),
         ],
       ),
@@ -563,6 +712,50 @@ class _BookingScreenState extends State<BookingScreen> {
   }
 
   Widget _buildComboAndPromoStep(BuildContext context) {
+    if (_comboLoading) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Bước 2: Chọn combo và mã giảm giá',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+              child: CircularProgressIndicator(
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    if (_comboError != null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Bước 2: Chọn combo và mã giảm giá',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Không tải được combo. Vui lòng thử lại.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          OutlinedButton.icon(
+            onPressed: _loadCombos,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Tải lại'),
+          ),
+        ],
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -571,9 +764,20 @@ class _BookingScreenState extends State<BookingScreen> {
           style: Theme.of(context).textTheme.titleLarge,
         ),
         const SizedBox(height: AppSpacing.sm),
-        ..._combos.map(
-              (combo) {
-            final qty = _comboQty[combo.name] ?? 0;
+        if (_combos.isEmpty)
+          Text(
+            'Chưa có combo khả dụng.',
+            style: Theme.of(context).textTheme.bodyMedium,
+          )
+        else
+          ..._combos.map((combo) {
+            final qty = _comboQty[combo.id] ?? 0;
+            final imageUrl = ImageHelper.getCorrectImageUrl(combo.imageUrl);
+            final detail = combo.description.isNotEmpty
+                ? combo.description
+                : combo.itemList
+                      .map((item) => '${item.quantity} ${item.productName}')
+                      .join(' + ');
             return Container(
               margin: const EdgeInsets.only(bottom: AppSpacing.sm),
               padding: const EdgeInsets.all(AppSpacing.md),
@@ -583,20 +787,45 @@ class _BookingScreenState extends State<BookingScreen> {
               ),
               child: Row(
                 children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(AppRadius.medium),
+                    child: SizedBox(
+                      width: 58,
+                      height: 58,
+                      child: imageUrl.startsWith('assets/')
+                          ? Image.asset(imageUrl, fit: BoxFit.cover)
+                          : Image.network(
+                              imageUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.surfaceVariant,
+                                child: const Icon(Icons.local_movies_outlined),
+                              ),
+                            ),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(combo.name, style: Theme.of(context).textTheme.titleMedium),
+                        Text(
+                          combo.name,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
                         const SizedBox(height: 4),
                         Text(
-                          combo.detail,
-                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurface
-                                .withAlphaPercent(0.72),
-                          ),
+                          detail,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurface.withAlphaPercent(0.72),
+                              ),
                         ),
                         const SizedBox(height: 6),
                         Text(
@@ -612,10 +841,10 @@ class _BookingScreenState extends State<BookingScreen> {
                         onPressed: qty == 0
                             ? null
                             : () {
-                          setState(() {
-                            _comboQty[combo.name] = qty - 1;
-                          });
-                        },
+                                setState(() {
+                                  _comboQty[combo.id] = qty - 1;
+                                });
+                              },
                         icon: const Icon(Icons.remove_circle_outline),
                       ),
                       SizedBox(
@@ -627,11 +856,13 @@ class _BookingScreenState extends State<BookingScreen> {
                         ),
                       ),
                       IconButton(
-                        onPressed: () {
-                          setState(() {
-                            _comboQty[combo.name] = qty + 1;
-                          });
-                        },
+                        onPressed: combo.stock > 0
+                            ? () {
+                                setState(() {
+                                  _comboQty[combo.id] = qty + 1;
+                                });
+                              }
+                            : null,
                         icon: const Icon(Icons.add_circle_outline),
                       ),
                     ],
@@ -639,8 +870,7 @@ class _BookingScreenState extends State<BookingScreen> {
                 ],
               ),
             );
-          },
-        ),
+          }),
         const SizedBox(height: AppSpacing.sm),
         TextField(
           controller: _promoController,
@@ -659,14 +889,16 @@ class _BookingScreenState extends State<BookingScreen> {
             width: double.infinity,
             padding: const EdgeInsets.all(AppSpacing.sm),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary.withAlphaPercent(0.12),
+              color: Theme.of(
+                context,
+              ).colorScheme.primary.withAlphaPercent(0.12),
               borderRadius: BorderRadius.circular(AppRadius.medium),
             ),
             child: Text(
               'Đã áp dụng mã $_promoApplied - giảm ${_formatCurrency(_discountAmount)}',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
             ),
           ),
         ],
@@ -683,76 +915,75 @@ class _BookingScreenState extends State<BookingScreen> {
           style: Theme.of(context).textTheme.titleLarge,
         ),
         const SizedBox(height: AppSpacing.sm),
-        ..._paymentMethods.map(
-              (method) {
-            final isSelected = _selectedPaymentMethod == method;
-            return Container(
-              margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(AppRadius.card),
-                  onTap: () {
-                    setState(() {
-                      _selectedPaymentMethod = method;
-                    });
-                  },
-                  child: Ink(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: AppSpacing.md,
-                      vertical: AppSpacing.md,
-                    ),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(AppRadius.card),
+        ..._paymentMethods.map((method) {
+          final isSelected = _selectedPaymentMethod == method;
+          return Container(
+            margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(AppRadius.card),
+                onTap: () {
+                  setState(() {
+                    _selectedPaymentMethod = method;
+                  });
+                },
+                child: Ink(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                    vertical: AppSpacing.md,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(AppRadius.card),
+                    color: isSelected
+                        ? Theme.of(
+                            context,
+                          ).colorScheme.primary.withAlphaPercent(0.12)
+                        : AppTheme.surfaceLayer(context, level: 1),
+                    border: Border.all(
                       color: isSelected
-                          ? Theme.of(context)
-                          .colorScheme
-                          .primary
-                          .withAlphaPercent(0.12)
-                          : AppTheme.surfaceLayer(context, level: 1),
-                      border: Border.all(
+                          ? Theme.of(context).colorScheme.primary
+                          : Theme.of(
+                              context,
+                            ).colorScheme.onSurface.withAlphaPercent(0.12),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          method,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ),
+                      Icon(
+                        isSelected
+                            ? Icons.radio_button_checked
+                            : Icons.radio_button_unchecked,
                         color: isSelected
                             ? Theme.of(context).colorScheme.primary
-                            : Theme.of(context)
-                            .colorScheme
-                            .onSurface
-                            .withAlphaPercent(0.12),
+                            : Theme.of(
+                                context,
+                              ).colorScheme.onSurface.withAlphaPercent(0.45),
                       ),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            method,
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                        ),
-                        Icon(
-                          isSelected
-                              ? Icons.radio_button_checked
-                              : Icons.radio_button_unchecked,
-                          color: isSelected
-                              ? Theme.of(context).colorScheme.primary
-                              : Theme.of(context)
-                              .colorScheme
-                              .onSurface
-                              .withAlphaPercent(0.45),
-                        ),
-                      ],
-                    ),
+                    ],
                   ),
                 ),
               ),
-            );
-          },
-        ),
+            ),
+          );
+        }),
       ],
     );
   }
 
   Widget _buildBottomBar(BuildContext context) {
     final selectedSeats = _selectedSeats.toList()..sort();
-    final seatLabel = selectedSeats.isEmpty ? 'Chưa chọn' : selectedSeats.join(', ');
+    final seatLabel = selectedSeats.isEmpty
+        ? 'Chưa chọn'
+        : selectedSeats.join(', ');
+    final isPrimaryDisabled =
+        _calculating || (_currentStep == 2 && _creatingBooking);
     return ClipRRect(
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
@@ -764,17 +995,21 @@ class _BookingScreenState extends State<BookingScreen> {
             AppSpacing.md,
           ),
           decoration: BoxDecoration(
-            color: Theme.of(context)
-                .scaffoldBackgroundColor
-                .withAlphaPercent(context.isDarkMode ? 0.88 : 0.94),
+            color: Theme.of(context).scaffoldBackgroundColor.withAlphaPercent(
+              context.isDarkMode ? 0.88 : 0.94,
+            ),
             border: Border(
               top: BorderSide(
-                color: Theme.of(context).colorScheme.onSurface.withAlphaPercent(0.08),
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withAlphaPercent(0.08),
               ),
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withAlphaPercent(context.isDarkMode ? 0.26 : 0.1),
+                color: Colors.black.withAlphaPercent(
+                  context.isDarkMode ? 0.26 : 0.1,
+                ),
                 blurRadius: 22,
                 offset: const Offset(0, -6),
               ),
@@ -814,7 +1049,11 @@ class _BookingScreenState extends State<BookingScreen> {
               if (_currentStep != 0) ...[
                 _priceLine(context, 'Tiền vé', _formatCurrency(_seatTotal)),
                 _priceLine(context, 'Combo', _formatCurrency(_comboTotal)),
-                _priceLine(context, 'Giảm giá', '- ${_formatCurrency(_discountAmount)}'),
+                _priceLine(
+                  context,
+                  'Giảm giá',
+                  '- ${_formatCurrency(_discountAmount)}',
+                ),
                 const SizedBox(height: 6),
                 _priceLine(
                   context,
@@ -826,27 +1065,26 @@ class _BookingScreenState extends State<BookingScreen> {
               const SizedBox(height: AppSpacing.sm),
               Row(
                 children: [
-                  if (_currentStep > 0)
+                  if (_currentStep > 0 && _currentStep != 2)
                     Expanded(
                       child: OutlinedButton(
-                        onPressed: () {
-                          setState(() {
-                            _currentStep -= 1;
-                          });
-                        },
+                        onPressed: _handleBack,
                         child: const Text('Quay lại'),
                       ),
                     ),
-                  if (_currentStep > 0) const SizedBox(width: AppSpacing.sm),
+                  if (_currentStep > 0 && _currentStep != 2)
+                    const SizedBox(width: AppSpacing.sm),
                   Expanded(
                     child: ElevatedButton.icon(
-                      onPressed: _onPrimaryAction,
+                      onPressed: isPrimaryDisabled ? null : _onPrimaryAction,
                       icon: Icon(
                         _currentStep == 2
                             ? Icons.check_circle_outline_rounded
                             : Icons.arrow_forward_rounded,
                       ),
-                      label: Text(_currentStep == 2 ? 'Thanh toán' : 'Tiếp tục'),
+                      label: Text(
+                        _currentStep == 2 ? 'Thanh toán' : 'Tiếp tục',
+                      ),
                     ),
                   ),
                 ],
@@ -859,11 +1097,11 @@ class _BookingScreenState extends State<BookingScreen> {
   }
 
   Widget _priceLine(
-      BuildContext context,
-      String label,
-      String value, {
-        bool isTotal = false,
-      }) {
+    BuildContext context,
+    String label,
+    String value, {
+    bool isTotal = false,
+  }) {
     final textStyle = isTotal
         ? Theme.of(context).textTheme.titleMedium
         : Theme.of(context).textTheme.bodyMedium;
@@ -946,9 +1184,7 @@ class _BookingScreenState extends State<BookingScreen> {
     }
 
     if (_currentStep == 1) {
-      setState(() {
-        _currentStep = 2;
-      });
+      _calculateAndContinue();
       return;
     }
 
@@ -961,14 +1197,167 @@ class _BookingScreenState extends State<BookingScreen> {
       return;
     }
 
+    _submitBooking();
+  }
+
+  String _resolvePaymentMethodCode(String label) {
+    switch (label) {
+      case 'MoMo':
+        return 'MOMO';
+      case 'VNPay':
+        return 'VNPAY';
+      default:
+        return label.toUpperCase();
+    }
+  }
+
+  String _resolveBankCode(String paymentMethod) {
+    if (paymentMethod == 'MOMO') {
+      return 'ATM';
+    }
+    return '';
+  }
+
+  List<Map<String, dynamic>> _buildBookingCombosPayload() {
+    final combosPayload = <Map<String, dynamic>>[];
+    for (final combo in _combos) {
+      final qty = _comboQty[combo.id] ?? 0;
+      if (qty <= 0) continue;
+      for (final item in combo.itemList) {
+        combosPayload.add({
+          'id': combo.id,
+          'comboId': combo.id,
+          'productId': item.productId,
+          'quantity': item.quantity * qty,
+        });
+      }
+    }
+    return combosPayload;
+  }
+
+  Future<void> _submitBooking() async {
+    if (_creatingBooking) return;
+
+    if (_selectedSeatIds.isEmpty) {
+      AppNotifier.warning(
+        context,
+        title: 'Thiếu thông tin ghế',
+        description: 'Vui lòng quay lại chọn ghế để tiếp tục.',
+      );
+      return;
+    }
+
+    final showtimeId = int.tryParse(widget.showtime.id) ?? 0;
+    if (showtimeId == 0) {
+      AppNotifier.warning(
+        context,
+        title: 'Không xác định suất chiếu',
+        description: 'Vui lòng quay lại và chọn suất chiếu.',
+      );
+      return;
+    }
+
+    final paymentMethod = _resolvePaymentMethodCode(_selectedPaymentMethod!);
+    final bankCode = _resolveBankCode(paymentMethod);
+    final voucherCode = _promoApplied ?? _promoController.text.trim();
+    final combosPayload = _buildBookingCombosPayload();
+    final productsPayload = <Map<String, dynamic>>[];
+
+    setState(() => _creatingBooking = true);
+    final success = await _bookingApi.createBooking(
+      userId: widget.userId,
+      showtimeId: showtimeId,
+      seatIds: _selectedSeatIds,
+      combos: combosPayload,
+      products: productsPayload,
+      voucherCode: voucherCode,
+      paymentMethod: paymentMethod,
+      bankCode: bankCode,
+    );
+
+    if (!mounted) return;
+    setState(() => _creatingBooking = false);
+
+    if (!success) {
+      AppNotifier.warning(
+        context,
+        title: 'Chưa tạo được đơn',
+        description: 'Vui lòng thử lại để thanh toán.',
+      );
+      return;
+    }
+
     final seats = _selectedSeats.toList()..sort();
     AppNotifier.success(
       context,
       title: 'Thanh toán thành công',
       description:
-      'Đặt vé thành công cho ${widget.movie.title} (${seats.join(', ')}) với tổng ${_formatCurrency(_total)}.',
+          'Đặt vé thành công cho ${widget.movie.title} (${seats.join(', ')}) với tổng ${_formatCurrency(_total)}.',
     );
     Navigator.of(context).pop();
+  }
+
+  Future<void> _calculateAndContinue() async {
+    if (_calculating) return;
+
+    if (_selectedSeatIds.isEmpty) {
+      AppNotifier.warning(
+        context,
+        title: 'Thiếu thông tin ghế',
+        description: 'Vui lòng quay lại chọn ghế để tiếp tục.',
+      );
+      return;
+    }
+
+    final showtimeId = int.tryParse(widget.showtime.id) ?? 0;
+    if (showtimeId == 0) {
+      AppNotifier.warning(
+        context,
+        title: 'Không xác định suất chiếu',
+        description: 'Vui lòng quay lại và chọn suất chiếu.',
+      );
+      return;
+    }
+
+    final combosPayload = <Map<String, dynamic>>[];
+    for (final combo in _combos) {
+      final qty = _comboQty[combo.id] ?? 0;
+      if (qty <= 0) continue;
+      for (final item in combo.itemList) {
+        combosPayload.add({
+          'id': combo.id.toString(),
+          'comboId': combo.id.toString(),
+          'productId': item.productId.toString(),
+          'quantity': item.quantity * qty,
+        });
+      }
+    }
+
+    final voucherCode = _promoApplied ?? _promoController.text.trim();
+
+    setState(() => _calculating = true);
+    final success = await _bookingApi.calculateBooking(
+      showtimeId: showtimeId,
+      seatIds: _selectedSeatIds,
+      combos: combosPayload,
+      voucherCode: voucherCode,
+    );
+
+    if (!mounted) return;
+    setState(() => _calculating = false);
+
+    if (!success) {
+      AppNotifier.warning(
+        context,
+        title: 'Chưa tính được đơn hàng',
+        description: 'Vui lòng thử lại để tiếp tục.',
+      );
+      return;
+    }
+
+    setState(() {
+      _currentStep = 2;
+    });
   }
 
   void _showPriceDetail() {
@@ -976,7 +1365,9 @@ class _BookingScreenState extends State<BookingScreen> {
       context: context,
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.hero)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(AppRadius.hero),
+        ),
       ),
       builder: (context) {
         return Padding(
@@ -991,9 +1382,18 @@ class _BookingScreenState extends State<BookingScreen> {
             children: [
               _priceLine(context, 'Tiền vé', _formatCurrency(_seatTotal)),
               _priceLine(context, 'Combo', _formatCurrency(_comboTotal)),
-              _priceLine(context, 'Giảm giá', '- ${_formatCurrency(_discountAmount)}'),
+              _priceLine(
+                context,
+                'Giảm giá',
+                '- ${_formatCurrency(_discountAmount)}',
+              ),
               const SizedBox(height: 8),
-              _priceLine(context, 'Tổng cộng', _formatCurrency(_total), isTotal: true),
+              _priceLine(
+                context,
+                'Tổng cộng',
+                _formatCurrency(_total),
+                isTotal: true,
+              ),
             ],
           ),
         );
@@ -1003,6 +1403,13 @@ class _BookingScreenState extends State<BookingScreen> {
 
   void _handleBack() {
     if (_currentStep == 0) {
+      Navigator.of(context).pop();
+      return;
+    }
+    if (_currentStep == 2) {
+      return;
+    }
+    if (widget.skipSeatStep && _currentStep == 1) {
       Navigator.of(context).pop();
       return;
     }
@@ -1025,9 +1432,8 @@ class _BookingScreenState extends State<BookingScreen> {
           title: 'Hết thời gian giữ ghế',
           description: 'Vui lòng chọn lại ghế để tiếp tục đặt vé.',
         );
-        setState(() {
-          _selectedSeats.clear();
-        });
+        if (!mounted) return;
+        Navigator.of(context).popUntil((route) => route.isFirst);
         return;
       }
       setState(() {
@@ -1054,22 +1460,6 @@ class _BookingScreenState extends State<BookingScreen> {
     }
     return '${buffer.toString()}đ';
   }
-}
-
-/*
- * Lớp bổ trợ _ComboOption:
- * Định nghĩa cấu trúc dữ liệu mô phỏng cho từng loại combo gồm tên, chi tiết và đơn giá.
- */
-class _ComboOption {
-  final String name;
-  final String detail;
-  final int price;
-
-  const _ComboOption({
-    required this.name,
-    required this.detail,
-    required this.price,
-  });
 }
 
 /*

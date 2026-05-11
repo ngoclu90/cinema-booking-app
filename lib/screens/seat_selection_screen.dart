@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import '../api/services/booking_api.dart';
 import '../components/booking/index.dart';
+import '../data/services/showtime_service.dart';
 import '../components/ui/index.dart';
 import '../design_system/tokens/index.dart';
 import '../layouts/app_shell/index.dart';
 import '../models/cinema.dart';
 import '../models/movie.dart';
 import '../models/showtime.dart';
+import '../models/showtime_seat_map.dart';
+import '../screens/booking_screen.dart';
 import '../utils/app_notifier.dart';
+import '../utils/image_helper.dart';
 
 /*
  * Màn hình SeatSelectionScreen:
@@ -31,28 +36,22 @@ class SeatSelectionScreen extends StatefulWidget {
 }
 
 class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
-  static const List<List<String?>> _seatBlueprint = [
-    ['A1', 'A2', 'A3', 'A4', null, 'A5', 'A6', 'A7', 'A8'],
-    ['B1', 'B2', 'B3', 'B4', null, 'B5', 'B6', 'B7', 'B8'],
-    ['C1', 'C2', 'C3', 'C4', null, 'C5', 'C6', 'C7', 'C8'],
-    ['D1', 'D2', 'D3', 'D4', null, 'D5', 'D6', 'D7', 'D8'],
-    ['E1', 'E2', 'E3', 'E4', null, 'E5', 'E6', 'E7', 'E8'],
-    ['F1', 'F2', 'F3', 'F4', null, 'F5', 'F6', 'F7', 'F8'],
-  ];
-
-  final BookingApi _bookingApi = const BookingApi();
+  final BookingApi _bookingApi = BookingApi();
+  final ShowtimeService _showtimeService = ShowtimeService();
   final Set<String> _selectedSeats = <String>{};
 
-  final Set<String> _vipSeats = {
-    'D3', 'D4', 'D5', 'D6',
-    'E3', 'E4', 'E5', 'E6',
-    'F3', 'F4', 'F5', 'F6',
-  };
+  List<List<String?>> _seatBlueprint = <List<String?>>[];
+  Set<String> _vipSeats = <String>{};
+  Set<String> _coupleSeats = <String>{};
+  Set<String> _bookedSeats = <String>{};
+  final Map<String, int> _seatPrices = <String, int>{};
+  final Map<String, int> _seatIds = <String, int>{};
+  final Map<int, String> _seatCodesById = <int, String>{};
+  ShowtimeSeatMap? _seatMap;
 
   bool _loading = true;
   bool _holding = false;
   Object? _error;
-  Set<String> _bookedSeats = <String>{};
 
   @override
   void initState() {
@@ -67,10 +66,69 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
     });
 
     try {
-      await Future<void>.delayed(const Duration(milliseconds: 220));
+      final response = await _showtimeService.getShowtimeSeatMap(
+        widget.showtime.id,
+      );
+      final seatMap = response?.data;
+      if (seatMap == null) {
+        throw StateError('Seat map is empty');
+      }
+
+      final blueprint = <List<String?>>[];
+      final vipSeats = <String>{};
+      final coupleSeats = <String>{};
+      final bookedSeats = <String>{};
+      final seatPrices = <String, int>{};
+      final seatIds = <String, int>{};
+      final seatCodesById = <int, String>{};
+
+      for (final row in seatMap.seatMap) {
+        if (row.seats.isEmpty) continue;
+        final rowSeats = <String?>[];
+        for (final seat in row.seats) {
+          final code = seat.code.isNotEmpty
+              ? seat.code
+              : '${row.rowLabel}${seat.number}';
+          rowSeats.add(code);
+          if (seat.price > 0) {
+            seatPrices[code] = seat.price;
+          }
+          if (seat.id > 0) {
+            seatIds[code] = seat.id;
+            seatCodesById[seat.id] = code;
+          }
+
+          final seatType = seat.type.toUpperCase();
+          if (seatType == 'VIP') {
+            vipSeats.add(code);
+          }
+          if (seatType == 'COUPLE') {
+            coupleSeats.add(code);
+          }
+
+          if (seat.status.toUpperCase() != 'AVAILABLE') {
+            bookedSeats.add(code);
+          }
+        }
+        blueprint.add(rowSeats);
+      }
+
       if (!mounted) return;
       setState(() {
-        _bookedSeats = _buildBookedSeats(widget.showtime.id);
+        _seatMap = seatMap;
+        _seatBlueprint = blueprint;
+        _vipSeats = vipSeats;
+        _coupleSeats = coupleSeats;
+        _bookedSeats = bookedSeats;
+        _seatPrices
+          ..clear()
+          ..addAll(seatPrices);
+        _seatIds
+          ..clear()
+          ..addAll(seatIds);
+        _seatCodesById
+          ..clear()
+          ..addAll(seatCodesById);
         _selectedSeats.clear();
         _loading = false;
       });
@@ -81,15 +139,6 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
         _loading = false;
       });
     }
-  }
-
-  Set<String> _buildBookedSeats(String showtimeId) {
-    return switch (showtimeId) {
-      'show-2' => {'A2', 'A3', 'B5', 'C4', 'D6', 'E2', 'E7', 'F4'},
-      'show-3' => {'A5', 'B1', 'B2', 'C7', 'D3', 'D4', 'E6', 'F7'},
-      'show-4' => {'A1', 'A8', 'B4', 'C2', 'C3', 'D7', 'E5', 'F2', 'F3'},
-      _ => {'A4', 'B6', 'C5', 'D2', 'E3', 'F6'},
-    };
   }
 
   bool get _hasAvailableSeat {
@@ -115,6 +164,11 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
   int get _totalPrice {
     var total = 0;
     for (final seat in _selectedSeats) {
+      final seatPrice = _seatPrices[seat];
+      if (seatPrice != null && seatPrice > 0) {
+        total += seatPrice;
+        continue;
+      }
       final isVip = _vipSeats.contains(seat);
       total += isVip ? (_ticketPrice * 1.2).round() : _ticketPrice;
     }
@@ -134,21 +188,58 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
 
   Future<void> _completeSelection() async {
     if (_selectedSeats.isEmpty || _holding) return;
-    setState(() => _holding = true);
+    final showtimeId =
+        _seatMap?.showtimeId ?? int.tryParse(widget.showtime.id) ?? 0;
+    if (showtimeId == 0) {
+      AppNotifier.warning(
+        context,
+        title: 'Không xác định suất chiếu',
+        description: 'Vui lòng thử lại để cập nhật suất chiếu.',
+      );
+      return;
+    }
 
+    final seatIds = _selectedSeats
+        .map((seat) => _seatIds[seat])
+        .whereType<int>()
+        .toList(growable: false);
+    if (seatIds.length != _selectedSeats.length) {
+      AppNotifier.warning(
+        context,
+        title: 'Thiếu dữ liệu ghế',
+        description: 'Vui lòng tải lại sơ đồ ghế rồi thử lại.',
+      );
+      return;
+    }
+
+    setState(() => _holding = true);
     final response = await _bookingApi.holdSeats(
-      showtimeId: widget.showtime.id,
-      seats: _selectedSeatLabels,
+      showtimeId: showtimeId,
+      seatIds: seatIds,
     );
 
     if (!mounted) return;
     setState(() => _holding = false);
 
-    if (!response.data) {
+    if (response == null || response.success != true) {
       AppNotifier.warning(
         context,
         title: 'Chưa giữ được ghế',
-        description: 'Hãy chọn ít nhất một ghế để tiếp tục.',
+        description: response?.message.isNotEmpty == true
+            ? response!.message
+            : 'Vui lòng thử lại để giữ ghế.',
+      );
+      return;
+    }
+
+    if (response.failedSeatIds.isNotEmpty) {
+      final failed = response.failedSeatIds
+          .map((id) => _seatCodesById[id] ?? id.toString())
+          .join(', ');
+      AppNotifier.warning(
+        context,
+        title: 'Một số ghế chưa giữ được',
+        description: 'Ghế lỗi: $failed. Vui lòng chọn lại.',
       );
       return;
     }
@@ -157,7 +248,24 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
       context,
       title: 'Đã giữ ghế',
       description:
-      '${widget.movie.title} · ${_selectedSeatLabels.join(', ')} sẵn sàng thanh toán.',
+          '${widget.movie.title} · ${_selectedSeatLabels.join(', ')} sẵn sàng chọn combo.',
+    );
+
+    if (!mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => BookingScreen(
+          movie: widget.movie,
+          showtime: widget.showtime,
+          initialSelectedSeats: _selectedSeatLabels,
+          initialSeatIds: seatIds,
+          initialSeatTotal: _totalPrice,
+          initialStep: 1,
+          skipSeatStep: true,
+          holdExpiresAt: response.expiresAt,
+          holdToken: response.holdToken,
+        ),
+      ),
     );
   }
 
@@ -209,11 +317,11 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
       ),
       bottomNavigationBar: !_loading && _error == null && _hasAvailableSeat
           ? BookingFooter(
-        selectedSeats: _selectedSeatLabels,
-        totalPrice: _formatPrice(_totalPrice),
-        fallbackPrice: widget.showtime.price,
-        onContinue: _holding ? () {} : _completeSelection,
-      )
+              selectedSeats: _selectedSeatLabels,
+              totalPrice: _formatPrice(_totalPrice),
+              fallbackPrice: widget.showtime.price,
+              onContinue: _holding ? () {} : _completeSelection,
+            )
           : null,
     );
   }
@@ -257,6 +365,8 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
           movie: widget.movie,
           showtime: widget.showtime,
           cinema: widget.cinema,
+          seatMap: _seatMap,
+          selectedSeats: _selectedSeatLabels,
         ),
         const SizedBox(height: AppSpacing.lg),
         const _ScreenIndicator(),
@@ -264,7 +374,8 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
         const SeatLegend(),
         const SizedBox(height: AppSpacing.lg),
         AppCard(
-          padding: AppCardPadding.sm, // Sửa thành AppCardPadding.sm của hệ thống để hết lỗi đỏ
+          padding: AppCardPadding
+              .sm, // Sửa thành AppCardPadding.sm của hệ thống để hết lỗi đỏ
           child: FittedBox(
             fit: BoxFit.scaleDown,
             child: SeatGrid(
@@ -272,6 +383,7 @@ class _SeatSelectionScreenState extends State<SeatSelectionScreen> {
               selectedSeats: _selectedSeats,
               bookedSeats: _bookedSeats,
               vipSeats: _vipSeats,
+              coupleSeats: _coupleSeats,
               onSeatPressed: _toggleSeat,
             ),
           ),
@@ -290,70 +402,212 @@ class _BookingSummary extends StatelessWidget {
   final MoviePublicDto movie;
   final Showtime showtime;
   final Cinema cinema;
+  final ShowtimeSeatMap? seatMap;
+  final List<String> selectedSeats;
 
   const _BookingSummary({
     required this.movie,
     required this.showtime,
     required this.cinema,
+    this.seatMap,
+    required this.selectedSeats,
   });
 
   @override
   Widget build(BuildContext context) {
+    final resolvedTitle = (seatMap?.movieTitle.isNotEmpty ?? false)
+        ? seatMap!.movieTitle
+        : movie.title;
+    final resolvedCinema = (seatMap?.cinemaName.isNotEmpty ?? false)
+        ? seatMap!.cinemaName
+        : cinema.name;
+    final resolvedRoom = (seatMap?.roomName.isNotEmpty ?? false)
+        ? seatMap!.roomName
+        : showtime.screen;
+    final resolvedGenre = (seatMap?.genre.isNotEmpty ?? false)
+        ? seatMap!.genre
+        : (movie.genre ?? '');
+
+    final durationMinutes = seatMap?.duration ?? movie.durationMinutes;
+    final durationLabel = durationMinutes > 0 ? '$durationMinutes phút' : '—';
+
+    final startTime = seatMap?.startTime;
+    final resolvedDateLabel = startTime != null
+        ? DateFormat('dd/MM/yyyy').format(startTime.toLocal())
+        : showtime.dateLabel;
+    final resolvedTimeLabel = startTime != null
+        ? DateFormat('HH:mm').format(startTime.toLocal())
+        : showtime.time;
+    final seatLabel = selectedSeats.isNotEmpty
+        ? selectedSeats.join(', ')
+        : 'Chưa chọn';
+
+    final posterUrl = ImageHelper.getCorrectImageUrl(
+      (seatMap?.moviePosterUrl.isNotEmpty ?? false)
+          ? seatMap!.moviePosterUrl
+          : movie.posterUrl,
+    );
+    final isAssetPoster = posterUrl.startsWith('assets/');
+
     return AppCard(
       padding: AppCardPadding.md,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            movie.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: AppTypography.subtitle.copyWith(
-              color: AppColors.textPrimary,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 88,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
+                  child: AspectRatio(
+                    aspectRatio: 2 / 3,
+                    child: posterUrl.isNotEmpty
+                        ? (isAssetPoster
+                              ? Image.asset(posterUrl, fit: BoxFit.cover)
+                              : Image.network(
+                                  posterUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Container(
+                                    color: AppColors.bgSurface2,
+                                    child: const Icon(
+                                      Icons.movie,
+                                      color: AppColors.textMuted,
+                                    ),
+                                  ),
+                                ))
+                        : Container(
+                            color: AppColors.bgSurface2,
+                            child: const Icon(
+                              Icons.movie,
+                              color: AppColors.textMuted,
+                            ),
+                          ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      resolvedTitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.subtitle.copyWith(
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.xs),
+                    Text(
+                      resolvedGenre.isNotEmpty ? resolvedGenre : '—',
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(
+                      resolvedTitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: AppSpacing.xs),
-          Text(
-            cinema.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+          const SizedBox(height: AppSpacing.md),
+          Container(height: 1, color: AppColors.borderDefault),
+          const SizedBox(height: AppSpacing.md),
+          _InfoRow(
+            icon: Icons.category_outlined,
+            label: 'Thể loại',
+            value: resolvedGenre.isNotEmpty ? resolvedGenre : '—',
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _InfoRow(
+            icon: Icons.schedule_outlined,
+            label: 'Thời lượng',
+            value: durationLabel,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _InfoRow(
+            icon: Icons.location_on_outlined,
+            label: 'Rạp chiếu',
+            value: resolvedCinema,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _InfoRow(
+            icon: Icons.event_outlined,
+            label: 'Ngày chiếu',
+            value: resolvedDateLabel,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _InfoRow(
+            icon: Icons.access_time,
+            label: 'Giờ chiếu',
+            value: resolvedTimeLabel,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _InfoRow(
+            icon: Icons.meeting_room_outlined,
+            label: 'Phòng chiếu',
+            value: resolvedRoom,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _InfoRow(
+            icon: Icons.event_seat_outlined,
+            label: 'Ghế',
+            value: seatLabel,
+            highlight: selectedSeats.isNotEmpty,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final bool highlight;
+
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.highlight = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: AppColors.textMuted),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Text(
+            label,
             style: AppTypography.caption.copyWith(
               color: AppColors.textSecondary,
             ),
           ),
-          const SizedBox(height: AppSpacing.md),
-          Wrap(
-            spacing: AppSpacing.xs,
-            runSpacing: AppSpacing.xs,
-            children: [
-              AppBadge(
-                label: showtime.dateLabel,
-                icon: const Icon(Icons.event, size: 14),
-                backgroundColor: Colors.transparent,
-                borderColor: AppColors.borderDefault,
-              ),
-              AppBadge(
-                label: showtime.time,
-                icon: const Icon(Icons.schedule, size: 14),
-                backgroundColor: Colors.transparent,
-                borderColor: AppColors.borderDefault,
-              ),
-              AppBadge(
-                label: showtime.screen,
-                icon: const Icon(Icons.meeting_room_outlined, size: 14),
-                backgroundColor: Colors.transparent,
-                borderColor: AppColors.borderDefault,
-              ),
-              AppBadge(
-                label: showtime.price,
-                icon: const Icon(Icons.payments_outlined, size: 14),
-                backgroundColor: Colors.transparent,
-                borderColor: AppColors.borderDefault,
-              ),
-            ],
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Text(
+          value,
+          textAlign: TextAlign.right,
+          style: AppTypography.bodyStrong.copyWith(
+            color: highlight ? AppColors.brandPrimary : AppColors.textPrimary,
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }

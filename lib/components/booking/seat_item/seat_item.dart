@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../design_system/tokens/index.dart';
 
-enum SeatStatus { available, selected, booked, vip, disabled }
+enum SeatStatus { available, selected, booked, vip, couple, disabled }
 
 class SeatItem extends StatelessWidget {
   final String code;
@@ -74,6 +74,12 @@ class SeatItem extends StatelessWidget {
           background: AppColors.seatVip,
           foreground: AppColors.textInverse,
           border: AppColors.seatVip,
+        );
+      case SeatStatus.couple:
+        return const _SeatColors(
+          background: AppColors.seatCouple,
+          foreground: AppColors.textInverse,
+          border: AppColors.seatCouple,
         );
       case SeatStatus.disabled:
         return const _SeatColors(

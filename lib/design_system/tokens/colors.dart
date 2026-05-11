@@ -29,5 +29,6 @@ class AppColors {
   static const Color seatSelected = Color(0xFFE50914);
   static const Color seatBooked = Color(0xFF111113);
   static const Color seatVip = Color(0xFFF59E0B);
+  static const Color seatCouple = Color(0xFF14B8A6);
   static const Color seatDisabled = Color(0xFF18181B);
 }

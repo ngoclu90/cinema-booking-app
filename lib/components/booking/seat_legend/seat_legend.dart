@@ -14,6 +14,7 @@ class SeatLegend extends StatelessWidget {
         _LegendItem(color: AppColors.seatAvailable, label: 'Trống'),
         _LegendItem(color: AppColors.seatSelected, label: 'Đang chọn'),
         _LegendItem(color: AppColors.seatVip, label: 'VIP'),
+        _LegendItem(color: AppColors.seatCouple, label: 'Ghế đôi'),
         _LegendItem(color: AppColors.seatBooked, label: 'Đã bán'),
       ],
     );
