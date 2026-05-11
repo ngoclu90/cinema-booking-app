@@ -38,7 +38,7 @@ class _ShellScreenState extends State<ShellScreen> {
     const TicketScreen(key: PageStorageKey<String>('ticket-tab')),
     ProfileScreen(
       key: const PageStorageKey<String>('profile-tab'),
-      account: widget.controller.currentAccount!,
+      controller: widget.controller,
       themeMode: widget.controller.themeMode,
       onThemeModeChanged: widget.controller.setThemeMode,
       onLogout: widget.controller.logout,

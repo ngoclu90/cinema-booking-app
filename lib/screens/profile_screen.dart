@@ -1,34 +1,68 @@
 import 'package:flutter/material.dart';
 
+import '../api/services/user_api.dart';
+import '../core/api_client.dart';
 import '../components/ui/index.dart';
 import '../design_system/tokens/index.dart';
 import '../layouts/app_shell/index.dart';
 import '../models/app_account.dart';
+import '../models/profile.dart';
+import '../state/app_controller.dart';
 import '../utils/app_notifier.dart';
+import 'change_password_screen.dart';
+import 'edit_profile_screen.dart';
 
-class ProfileScreen extends StatelessWidget {
-  final AppAccount account;
+class ProfileScreen extends StatefulWidget {
+  final AppController controller;
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
   final VoidCallback onLogout;
 
   const ProfileScreen({
     super.key,
-    required this.account,
+    required this.controller,
     required this.themeMode,
     required this.onThemeModeChanged,
     required this.onLogout,
   });
 
   @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  bool _isRefreshing = false;
+
+  Future<void> _handleRefresh() async {
+    setState(() => _isRefreshing = true);
+    await widget.controller.reloadAccount();
+    if (mounted) {
+      setState(() => _isRefreshing = false);
+    }
+  }
+
+  String? _getFullImageUrl(String? path) {
+    if (path == null || path.isEmpty) return null;
+    if (path.startsWith('http')) return path;
+    return '${ApiClient.imgBaseUrl}$path';
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final account = widget.controller.currentAccount;
+    if (account == null) return const Center(child: CircularProgressIndicator());
+    
     final profile = account.profile;
+    final avatarUrl = _getFullImageUrl(profile.avatarUrl);
+
     return ScreenContainer(
       title: 'Hồ sơ',
       subtitle: 'Tài khoản và hỗ trợ',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (_isRefreshing)
+            const LinearProgressIndicator(minHeight: 2, backgroundColor: Colors.transparent),
           AppCard(
             padding: AppCardPadding.lg,
             child: Column(
@@ -43,17 +77,25 @@ class ProfileScreen extends StatelessWidget {
                         color: AppColors.brandPrimarySoft,
                         borderRadius: BorderRadius.circular(AppRadius.md),
                         border: Border.all(color: AppColors.brandPrimary),
+                        image: avatarUrl != null
+                            ? DecorationImage(
+                                image: NetworkImage(avatarUrl),
+                                fit: BoxFit.cover,
+                              )
+                            : null,
                       ),
-                      child: Center(
-                        child: Text(
-                          profile.name.trim().isEmpty
-                              ? 'U'
-                              : profile.name.trim().characters.first,
-                          style: AppTypography.title.copyWith(
-                            color: AppColors.brandPrimary,
-                          ),
-                        ),
-                      ),
+                      child: avatarUrl == null
+                          ? Center(
+                              child: Text(
+                                profile.name.trim().isEmpty
+                                    ? 'U'
+                                    : profile.name.trim().characters.first,
+                                style: AppTypography.title.copyWith(
+                                  color: AppColors.brandPrimary,
+                                ),
+                              ),
+                            )
+                          : null,
                     ),
                     const SizedBox(width: AppSpacing.md),
                     Expanded(
@@ -117,34 +159,25 @@ class ProfileScreen extends StatelessWidget {
             icon: Icons.person_outline,
             title: 'Thông tin cá nhân',
             subtitle: profile.phone,
-            onPressed: () =>
-                _notify(context, 'Thông tin cá nhân', profile.membership),
-          ),
-          _ProfileMenuItem(
-            icon: Icons.event_seat_outlined,
-            title: 'Vé của tôi',
-            subtitle: 'Quản lý vé đã đặt',
-            onPressed: () =>
-                _notify(context, 'Vé của tôi', 'Mở từ thanh điều hướng dưới.'),
-          ),
-          _ProfileMenuItem(
-            icon: Icons.confirmation_number_outlined,
-            title: 'Voucher của tôi',
-            subtitle: 'Ưu đãi và mã khuyến mãi',
-            onPressed: () => _notify(
-              context,
-              'Voucher của tôi',
-              'Voucher đang được đồng bộ.',
-            ),
+            onPressed: () async {
+              final updated = await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => EditProfileScreen(profile: profile),
+                ),
+              );
+              if (updated == true) _handleRefresh();
+            },
           ),
           _ProfileMenuItem(
             icon: Icons.lock_outline,
             title: 'Đổi mật khẩu',
             subtitle: 'Cập nhật bảo mật tài khoản',
-            onPressed: () => _notify(
+            onPressed: () => Navigator.push(
               context,
-              'Đổi mật khẩu',
-              'Chức năng sẽ nối API xác thực.',
+              MaterialPageRoute(
+                builder: (_) => ChangePasswordScreen(controller: widget.controller),
+              ),
             ),
           ),
           const SizedBox(height: AppSpacing.xxl),
@@ -153,25 +186,15 @@ class ProfileScreen extends StatelessWidget {
           _ProfileMenuItem(
             icon: Icons.settings_outlined,
             title: 'Cài đặt',
-            subtitle: _themeLabel(themeMode),
+            subtitle: _themeLabel(widget.themeMode),
             onPressed: () => _showThemeSheet(context),
-          ),
-          _ProfileMenuItem(
-            icon: Icons.support_agent,
-            title: 'Trung tâm hỗ trợ',
-            subtitle: 'Câu hỏi thường gặp và liên hệ rạp',
-            onPressed: () => _notify(
-              context,
-              'Hỗ trợ',
-              'Beta Two luôn sẵn sàng hỗ trợ bạn.',
-            ),
           ),
           const SizedBox(height: AppSpacing.lg),
           AppButton(
             title: 'Đăng xuất',
             variant: AppButtonVariant.danger,
             leftIcon: const Icon(Icons.logout),
-            onPressed: onLogout,
+            onPressed: widget.onLogout,
           ),
         ],
       ),
@@ -196,9 +219,9 @@ class ProfileScreen extends StatelessWidget {
                   icon: Icons.dark_mode_outlined,
                   title: 'Tối',
                   subtitle: 'Giao diện cinematic mặc định',
-                  selected: themeMode == ThemeMode.dark,
+                  selected: widget.themeMode == ThemeMode.dark,
                   onPressed: () {
-                    onThemeModeChanged(ThemeMode.dark);
+                    widget.onThemeModeChanged(ThemeMode.dark);
                     Navigator.of(sheetContext).pop();
                   },
                 ),
@@ -206,9 +229,9 @@ class ProfileScreen extends StatelessWidget {
                   icon: Icons.brightness_auto_outlined,
                   title: 'Theo thiết bị',
                   subtitle: 'Vẫn giữ palette cinematic',
-                  selected: themeMode == ThemeMode.system,
+                  selected: widget.themeMode == ThemeMode.system,
                   onPressed: () {
-                    onThemeModeChanged(ThemeMode.system);
+                    widget.onThemeModeChanged(ThemeMode.system);
                     Navigator.of(sheetContext).pop();
                   },
                 ),
@@ -232,9 +255,7 @@ class ProfileScreen extends StatelessWidget {
 class _StatTile extends StatelessWidget {
   final String label;
   final String value;
-
   const _StatTile({required this.label, required this.value});
-
   @override
   Widget build(BuildContext context) {
     return AppCard(
@@ -243,21 +264,9 @@ class _StatTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTypography.caption.copyWith(color: AppColors.textMuted),
-          ),
+          Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTypography.caption.copyWith(color: AppColors.textMuted)),
           const SizedBox(height: AppSpacing.xs),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppTypography.bodyStrong.copyWith(
-              color: AppColors.textPrimary,
-            ),
-          ),
+          Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTypography.bodyStrong.copyWith(color: AppColors.textPrimary)),
         ],
       ),
     );
@@ -269,14 +278,7 @@ class _ProfileMenuItem extends StatelessWidget {
   final String title;
   final String subtitle;
   final VoidCallback onPressed;
-
-  const _ProfileMenuItem({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onPressed,
-  });
-
+  const _ProfileMenuItem({required this.icon, required this.title, required this.subtitle, required this.onPressed});
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -290,11 +292,7 @@ class _ProfileMenuItem extends StatelessWidget {
             Container(
               width: 40,
               height: 40,
-              decoration: BoxDecoration(
-                color: AppColors.bgSurface2,
-                borderRadius: BorderRadius.circular(AppRadius.sm),
-                border: Border.all(color: AppColors.borderDefault),
-              ),
+              decoration: BoxDecoration(color: AppColors.bgSurface2, borderRadius: BorderRadius.circular(AppRadius.sm), border: Border.all(color: AppColors.borderDefault)),
               child: Icon(icon, color: AppColors.textSecondary, size: 22),
             ),
             const SizedBox(width: AppSpacing.md),
@@ -302,23 +300,9 @@ class _ProfileMenuItem extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.bodyStrong.copyWith(
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
+                  Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTypography.bodyStrong.copyWith(color: AppColors.textPrimary)),
                   const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.caption.copyWith(
-                      color: AppColors.textMuted,
-                    ),
-                  ),
+                  Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: AppTypography.caption.copyWith(color: AppColors.textMuted)),
                 ],
               ),
             ),
@@ -336,15 +320,7 @@ class _ThemeOption extends StatelessWidget {
   final String subtitle;
   final bool selected;
   final VoidCallback onPressed;
-
-  const _ThemeOption({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.selected,
-    required this.onPressed,
-  });
-
+  const _ThemeOption({required this.icon, required this.title, required this.subtitle, required this.selected, required this.onPressed});
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -361,23 +337,12 @@ class _ThemeOption extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title,
-                    style: AppTypography.bodyStrong.copyWith(
-                      color: AppColors.textPrimary,
-                    ),
-                  ),
-                  Text(
-                    subtitle,
-                    style: AppTypography.caption.copyWith(
-                      color: AppColors.textMuted,
-                    ),
-                  ),
+                  Text(title, style: AppTypography.bodyStrong.copyWith(color: AppColors.textPrimary)),
+                  Text(subtitle, style: AppTypography.caption.copyWith(color: AppColors.textMuted)),
                 ],
               ),
             ),
-            if (selected)
-              const Icon(Icons.check_box, color: AppColors.brandPrimary),
+            if (selected) const Icon(Icons.check_box, color: AppColors.brandPrimary),
           ],
         ),
       ),
