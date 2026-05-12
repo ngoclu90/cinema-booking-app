@@ -5,12 +5,11 @@ import '../api/services/user_api.dart';
 import '../core/api_client.dart'; // Import ApiClient
 import '../data/services/auth_service.dart';
 import '../models/app_account.dart';
-import '../models/profile.dart';
 
 class AppController extends ChangeNotifier {
   final AuthService _authService = AuthService();
   final UserApi _userApi = UserApi();
-  
+
   ThemeMode _themeMode = ThemeMode.system;
   AppAccount? _currentAccount;
   bool _isInitialized = false;
@@ -31,17 +30,19 @@ class AppController extends ChangeNotifier {
     try {
       final response = await _userApi.getCurrentUser();
       final profile = response.data;
-      
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('user_id', profile.id);
+
       _currentAccount = AppAccount(
-        id: profile.id.toString(), 
+        id: profile.id.toString(),
         email: profile.email,
         password: '',
-        role: (profile.roleId == 1 || profile.roleId == 2) 
-            ? AppUserRole.staff 
+        role: (profile.roleId == 1 || profile.roleId == 2)
+            ? AppUserRole.staff
             : AppUserRole.customer,
         roleLabel: profile.position ?? profile.membership,
-        roleTitle: profile.roleId == 1 
-            ? 'Quản trị viên' 
+        roleTitle: profile.roleId == 1
+            ? 'Quản trị viên'
             : (profile.roleId == 2 ? 'Quản lý hệ thống' : 'Thành viên Cinema'),
         leftStatLabel: 'Điểm',
         leftStatValue: '${profile.points}',
@@ -80,7 +81,7 @@ class AppController extends ChangeNotifier {
         final accessToken = tokens['accessToken'] ?? tokens['token'];
         // ĐỒNG BỘ TOKEN VÀO RAM NGAY SAU KHI ĐĂNG NHẬP
         ApiClient.setToken(accessToken);
-        
+
         await reloadAccount();
         return true;
       }
@@ -94,7 +95,8 @@ class AppController extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('jwt_token');
     await prefs.remove('refresh_token');
-    
+    await prefs.remove('user_id');
+
     // XÓA TOKEN KHỎI RAM
     ApiClient.setToken(null);
 

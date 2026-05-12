@@ -15,7 +15,7 @@ class ComboService {
   }) async {
     try {
       final response = await _apiClient.dio.get(
-        '/public/combo',
+        'public/combo',
         queryParameters: {
           'page': page,
           'perPage': perPage,

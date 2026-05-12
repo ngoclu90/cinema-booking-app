@@ -14,7 +14,7 @@ class ShowtimeService {
   ) async {
     try {
       final response = await _apiClient.dio.get(
-        '/${ApiEndpoints.showtimes}/$showtimeId/seats',
+        '${ApiEndpoints.showtimes}/$showtimeId/seats',
       );
 
       if (response.statusCode == 200) {

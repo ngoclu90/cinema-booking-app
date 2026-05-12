@@ -23,8 +23,8 @@ class ApiEndpoints {
   static const String customers = 'users/customers';
 
   // Business Endpoints
-  static const String movies = 'movies';
-  static const String cinemas = 'cinemas';
+  static const String publicBase = 'public';
+  static const String cinemas = 'public/cinemas';
   static const String showtimes = 'showtimes';
   static const String bookings = 'bookings';
   static const String vouchers = 'vouchers';

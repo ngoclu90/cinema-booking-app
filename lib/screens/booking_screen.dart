@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../api/services/booking_api.dart';
 import '../data/services/combo_service.dart';
+import '../data/services/voucher_service.dart';
 import '../models/combo.dart';
 import '../models/movie.dart';
 import '../models/showtime.dart';
@@ -10,6 +12,7 @@ import '../theme/app_theme.dart';
 import '../theme/design_tokens.dart';
 import '../utils/app_notifier.dart';
 import '../utils/image_helper.dart';
+import 'payment_webview_screen.dart';
 
 /*
  * Màn hình BookingScreen:
@@ -63,14 +66,13 @@ class _BookingScreenState extends State<BookingScreen> {
 
   final ComboService _comboService = ComboService();
   final BookingApi _bookingApi = BookingApi();
+  final VoucherService _voucherService = VoucherService();
   List<Combo> _combos = const <Combo>[];
   bool _comboLoading = true;
   Object? _comboError;
+  bool _checkingVoucher = false;
 
-  final List<String> _paymentMethods = const [
-    'MoMo',
-    'VNPay',
-  ];
+  final List<String> _paymentMethods = const ['MoMo', 'VNPay'];
 
   final Set<String> _lockedSeats = const {
     'A3',
@@ -91,11 +93,12 @@ class _BookingScreenState extends State<BookingScreen> {
   int? _seatTotalOverride;
   bool _calculating = false;
   bool _creatingBooking = false;
+  bool _releasingSeats = false;
+  int? _voucherDiscountAmount;
+  int? _voucherFinalPrice;
 
   int _currentStep = 0;
   int _holdSeconds = 600;
-  int _percentDiscount = 0;
-  int _fixedDiscount = 0;
   String? _promoApplied;
   String? _selectedPaymentMethod;
   Timer? _holdTimer;
@@ -173,13 +176,19 @@ class _BookingScreenState extends State<BookingScreen> {
   int get _subtotal => _seatTotal + _comboTotal;
 
   int get _discountAmount {
-    final percent = ((_subtotal * _percentDiscount) / 100).round();
-    final amount = percent + _fixedDiscount;
+    if (_voucherDiscountAmount == null) return 0;
+    final amount = _voucherDiscountAmount!;
     if (amount <= 0) return 0;
     return amount > _subtotal ? _subtotal : amount;
   }
 
-  int get _total => _subtotal - _discountAmount;
+  int get _total {
+    if (_voucherFinalPrice != null) {
+      final total = _voucherFinalPrice!;
+      return total < 0 ? 0 : total;
+    }
+    return _subtotal - _discountAmount;
+  }
 
   String get _holdTimeLabel {
     final minutes = (_holdSeconds ~/ 60).toString().padLeft(2, '0');
@@ -878,8 +887,14 @@ class _BookingScreenState extends State<BookingScreen> {
           decoration: InputDecoration(
             hintText: 'Nhập mã giảm giá',
             suffixIcon: TextButton(
-              onPressed: _applyPromo,
-              child: const Text('Áp dụng'),
+              onPressed: _checkingVoucher ? null : _applyPromo,
+              child: _checkingVoucher
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Áp dụng'),
             ),
           ),
         ),
@@ -1123,7 +1138,7 @@ class _BookingScreenState extends State<BookingScreen> {
     );
   }
 
-  void _applyPromo() {
+  Future<void> _applyPromo() async {
     final code = _promoController.text.trim().toUpperCase();
     if (code.isEmpty) {
       AppNotifier.warning(
@@ -1134,37 +1149,65 @@ class _BookingScreenState extends State<BookingScreen> {
       return;
     }
 
-    setState(() {
-      _percentDiscount = 0;
-      _fixedDiscount = 0;
-      _promoApplied = null;
+    if (_checkingVoucher) return;
 
-      if (code == 'CINEMA10') {
-        _percentDiscount = 10;
-        _promoApplied = code;
-      } else if (code == 'WEEKEND20') {
-        _percentDiscount = 20;
-        _promoApplied = code;
-      } else if (code == 'SNACK30K') {
-        _fixedDiscount = 30000;
-        _promoApplied = code;
-      }
+    setState(() {
+      _checkingVoucher = true;
+      _voucherDiscountAmount = null;
+      _voucherFinalPrice = null;
+      _promoApplied = null;
     });
 
-    if (_promoApplied == null) {
+    try {
+      final response = await _voucherService.checkVoucher(
+        code: code,
+        price: _subtotal,
+      );
+
+      if (!mounted) return;
+
+      if (response == null) {
+        setState(() => _checkingVoucher = false);
+        AppNotifier.warning(
+          context,
+          title: 'Mã chưa hợp lệ',
+          description: 'Mã giảm giá không tồn tại hoặc đã hết hạn.',
+        );
+        return;
+      }
+
+      final voucher = response.data;
+      final clampedDiscount = voucher.discountAmount
+          .clamp(0, _subtotal)
+          .toInt();
+      final resolvedFinalPrice = voucher.finalPrice
+          .clamp(0, _subtotal)
+          .toInt();
+
+      setState(() {
+        _checkingVoucher = false;
+        _promoApplied =
+            voucher.voucherCode.isNotEmpty ? voucher.voucherCode : code;
+        _voucherDiscountAmount = clampedDiscount;
+        _voucherFinalPrice = resolvedFinalPrice;
+      });
+
+      AppNotifier.success(
+        context,
+        title: response.message.isNotEmpty
+            ? response.message
+            : 'Áp dụng mã thành công',
+        description: 'Bạn đã tiết kiệm ${_formatCurrency(_discountAmount)}.',
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _checkingVoucher = false);
       AppNotifier.warning(
         context,
-        title: 'Mã chưa hợp lệ',
-        description: 'Mã giảm giá không tồn tại hoặc đã hết hạn.',
+        title: 'Không thể áp dụng mã',
+        description: 'Vui lòng thử lại sau.',
       );
-      return;
     }
-
-    AppNotifier.success(
-      context,
-      title: 'Áp dụng mã thành công',
-      description: 'Bạn đã tiết kiệm ${_formatCurrency(_discountAmount)}.',
-    );
   }
 
   void _onPrimaryAction() {
@@ -1223,14 +1266,11 @@ class _BookingScreenState extends State<BookingScreen> {
     for (final combo in _combos) {
       final qty = _comboQty[combo.id] ?? 0;
       if (qty <= 0) continue;
-      for (final item in combo.itemList) {
-        combosPayload.add({
-          'id': combo.id,
-          'comboId': combo.id,
-          'productId': item.productId,
-          'quantity': item.quantity * qty,
-        });
-      }
+      combosPayload.add({
+        'id': combo.id,
+        'comboId': combo.id,
+        'quantity': qty,
+      });
     }
     return combosPayload;
   }
@@ -1257,6 +1297,16 @@ class _BookingScreenState extends State<BookingScreen> {
       return;
     }
 
+    final resolvedUserId = await _resolveUserId();
+    if (resolvedUserId == 0) {
+      AppNotifier.warning(
+        context,
+        title: 'Thiếu thông tin người dùng',
+        description: 'Vui lòng đăng nhập lại để tiếp tục.',
+      );
+      return;
+    }
+
     final paymentMethod = _resolvePaymentMethodCode(_selectedPaymentMethod!);
     final bankCode = _resolveBankCode(paymentMethod);
     final voucherCode = _promoApplied ?? _promoController.text.trim();
@@ -1264,8 +1314,8 @@ class _BookingScreenState extends State<BookingScreen> {
     final productsPayload = <Map<String, dynamic>>[];
 
     setState(() => _creatingBooking = true);
-    final success = await _bookingApi.createBooking(
-      userId: widget.userId,
+    final booking = await _bookingApi.createBooking(
+      userId: resolvedUserId,
       showtimeId: showtimeId,
       seatIds: _selectedSeatIds,
       combos: combosPayload,
@@ -1278,12 +1328,22 @@ class _BookingScreenState extends State<BookingScreen> {
     if (!mounted) return;
     setState(() => _creatingBooking = false);
 
-    if (!success) {
+    if (booking == null) {
       AppNotifier.warning(
         context,
         title: 'Chưa tạo được đơn',
         description: 'Vui lòng thử lại để thanh toán.',
       );
+      return;
+    }
+
+    if (booking.paymentUrl.isNotEmpty) {
+      AppNotifier.success(
+        context,
+        title: 'Tạo đơn thành công',
+        description: 'Đang mở trang thanh toán MoMo/VNPay.',
+      );
+      _openPaymentWebView(booking.paymentUrl);
       return;
     }
 
@@ -1295,6 +1355,18 @@ class _BookingScreenState extends State<BookingScreen> {
           'Đặt vé thành công cho ${widget.movie.title} (${seats.join(', ')}) với tổng ${_formatCurrency(_total)}.',
     );
     Navigator.of(context).pop();
+  }
+
+  void _openPaymentWebView(String url) {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => PaymentWebViewScreen(paymentUrl: url)),
+    );
+  }
+
+  Future<int> _resolveUserId() async {
+    if (widget.userId > 0) return widget.userId;
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt('user_id') ?? 0;
   }
 
   Future<void> _calculateAndContinue() async {
@@ -1319,19 +1391,7 @@ class _BookingScreenState extends State<BookingScreen> {
       return;
     }
 
-    final combosPayload = <Map<String, dynamic>>[];
-    for (final combo in _combos) {
-      final qty = _comboQty[combo.id] ?? 0;
-      if (qty <= 0) continue;
-      for (final item in combo.itemList) {
-        combosPayload.add({
-          'id': combo.id.toString(),
-          'comboId': combo.id.toString(),
-          'productId': item.productId.toString(),
-          'quantity': item.quantity * qty,
-        });
-      }
-    }
+    final combosPayload = _buildBookingCombosPayload();
 
     final voucherCode = _promoApplied ?? _promoController.text.trim();
 
@@ -1401,7 +1461,7 @@ class _BookingScreenState extends State<BookingScreen> {
     );
   }
 
-  void _handleBack() {
+  Future<void> _handleBack() async {
     if (_currentStep == 0) {
       Navigator.of(context).pop();
       return;
@@ -1409,13 +1469,88 @@ class _BookingScreenState extends State<BookingScreen> {
     if (_currentStep == 2) {
       return;
     }
-    if (widget.skipSeatStep && _currentStep == 1) {
-      Navigator.of(context).pop();
+    if (_currentStep == 1) {
+      final confirmed = await _confirmReleaseSeats();
+      if (!confirmed) return;
+
+      final released = await _releaseSeatsIfNeeded();
+      if (!released) return;
+
+      if (widget.skipSeatStep) {
+        Navigator.of(context).pop();
+        return;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _currentStep -= 1;
+      });
       return;
     }
-    setState(() {
-      _currentStep -= 1;
-    });
+  }
+
+  Future<bool> _confirmReleaseSeats() async {
+    return (await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Xác nhận quay lại'),
+            content: const Text(
+              'Nếu quay trở lại ghế của bạn sẽ không được giữ, bạn có chắc muốn thoát khỏi quy trình đặt vé này không?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Hủy'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Thoát'),
+              ),
+            ],
+          ),
+        )) ??
+        false;
+  }
+
+  Future<bool> _releaseSeatsIfNeeded() async {
+    if (_releasingSeats) return false;
+    final holdToken = widget.holdToken;
+    if (holdToken == null || holdToken.trim().isEmpty) return true;
+
+    final showtimeId = int.tryParse(widget.showtime.id) ?? 0;
+
+    setState(() => _releasingSeats = true);
+    try {
+      final success = await _bookingApi.releaseSeats(
+        holdToken: holdToken,
+        showtimeId: showtimeId,
+        seatIds: _selectedSeatIds,
+      );
+
+      if (!mounted) return false;
+      setState(() => _releasingSeats = false);
+
+      if (!success) {
+        AppNotifier.warning(
+          context,
+          title: 'Chưa trả được ghế',
+          description: 'Vui lòng thử lại để tiếp tục.',
+        );
+        return false;
+      }
+
+      return true;
+    } catch (_) {
+      if (!mounted) return false;
+      setState(() => _releasingSeats = false);
+      AppNotifier.warning(
+        context,
+        title: 'Không thể trả ghế',
+        description: 'Vui lòng thử lại sau.',
+      );
+      return false;
+    }
   }
 
   void _startHoldCountdown() {
