@@ -1,10 +1,9 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
-import 'package:dio/dio.dart' show BaseOptions, Dio, DioException, QueuedInterceptorsWrapper;
+import 'package:dio/dio.dart' show BaseOptions, Dio, DioException, QueuedInterceptorsWrapper, Headers;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ApiClient {
-  // Singleton Pattern
   static final ApiClient _instance = ApiClient._internal();
   factory ApiClient() => _instance;
 
@@ -13,12 +12,10 @@ class ApiClient {
 
   static String get host => kIsWeb ? 'localhost' : (Platform.isAndroid ? '10.0.2.2' : 'localhost');
   static String get baseUrl => 'http://$host:8080/api/';
-  
-  // Bổ sung imgBaseUrl để hiển thị ảnh từ Server
   static String get imgBaseUrl => 'http://$host:8080';
 
   static void setToken(String? token) {
-    _authToken = token;
+    _authToken = token?.trim();
     debugPrint('--- [API CLIENT] RAM Token updated ---');
   }
 
@@ -28,8 +25,14 @@ class ApiClient {
         baseUrl: baseUrl,
         connectTimeout: const Duration(seconds: 15),
         receiveTimeout: const Duration(seconds: 15),
-        contentType: 'application/json',
-        headers: {'Accept': 'application/json'},
+        contentType: Headers.jsonContentType,
+        headers: {
+          'Accept': 'application/json, text/plain, */*',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
+          'X-Requested-With': 'XMLHttpRequest',
+          'Connection': 'keep-alive',
+        },
       ),
     );
 
@@ -37,16 +40,16 @@ class ApiClient {
       onRequest: (options, handler) async {
         try {
           String? token = _authToken;
-          
           if (token == null || token.isEmpty) {
             final prefs = await SharedPreferences.getInstance();
-            token = prefs.getString('jwt_token');
+            token = prefs.getString('jwt_token')?.trim();
             _authToken = token;
           }
           
-          if (token != null && token.trim().isNotEmpty) {
-            options.headers['Authorization'] = 'Bearer ${token.trim()}';
+          if (token != null && token.isNotEmpty) {
+            options.headers['Authorization'] = 'Bearer $token';
           }
+          debugPrint('--- [API CALL] ${options.method}: ${options.path}');
         } catch (e) {
           debugPrint('--- [INTERCEPTOR ERROR] $e ---');
         }
@@ -54,6 +57,9 @@ class ApiClient {
       },
       onError: (DioException e, handler) {
         debugPrint('--- [API ERR] Status: ${e.response?.statusCode} | Path: ${e.requestOptions.path} ---');
+        if (e.response?.data != null) {
+          debugPrint('--- [SERVER DATA] ${e.response?.data} ---');
+        }
         return handler.next(e);
       },
     ));
