@@ -25,6 +25,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   bool _isSaving = false;
   bool _isUploadingAvatar = false;
   String? _avatarUrl;
+  
+  // Dùng timestamp để làm mới URL ảnh, tránh cache của Flutter
+  int _imageVersion = DateTime.now().millisecondsSinceEpoch;
 
   @override
   void initState() {
@@ -41,11 +44,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     super.dispose();
   }
 
-  // Hàm helper để lấy URL ảnh đầy đủ
-  String? _getFullImageUrl(String? path) {
+  // Hàm helper để lấy URL ảnh đầy đủ kèm Cache Buster
+  String? _getFullImageUrl(String? path, {int? version}) {
     if (path == null || path.isEmpty) return null;
-    if (path.startsWith('http')) return path;
-    return '${ApiClient.imgBaseUrl}$path';
+    String url = path.startsWith('http') ? path : '${ApiClient.imgBaseUrl}$path';
+    return '$url?v=${version ?? _imageVersion}';
   }
 
   void _handlePickImage() async {
@@ -54,7 +57,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         source: ImageSource.gallery,
         maxWidth: 512,
         maxHeight: 512,
-        imageQuality: 85,
+        imageQuality: 70, 
       );
 
       if (image == null) return;
@@ -62,19 +65,40 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       setState(() => _isUploadingAvatar = true);
 
       // Gọi API POST /api/users/me/avatar
-      final response = await _userApi.updateAvatar(image.path);
+      final response = await _userApi.updateAvatar(image);
 
       if (mounted) {
+        final newPath = response.data;
+        final newVersion = DateTime.now().millisecondsSinceEpoch;
+
+        // KỸ THUẬT QUAN TRỌNG: Tải ảnh vào RAM trước khi tắt loading để tránh nền đen
+        if (newPath != null && newPath.isNotEmpty) {
+          final nextFullUrl = _getFullImageUrl(newPath, version: newVersion);
+          if (nextFullUrl != null) {
+            try {
+              // Tải ảnh vào RAM trước
+              await precacheImage(NetworkImage(nextFullUrl), context);
+            } catch (e) {
+              debugPrint('--- [PRECACHE ERROR] $e ---');
+            }
+          }
+        }
+
         setState(() {
-          _avatarUrl = response.data; // URL trả về từ BE (thường là đường dẫn tương đối)
-          _isUploadingAvatar = false;
+          _avatarUrl = newPath;
+          _imageVersion = newVersion;
+          _isUploadingAvatar = false; // Chỉ tắt loading sau khi ảnh đã nạp vào RAM
         });
+        
         AppNotifier.success(context, title: 'Thành công', description: 'Đã cập nhật ảnh đại diện');
       }
     } catch (e) {
       if (mounted) {
         setState(() => _isUploadingAvatar = false);
-        AppNotifier.error(context, title: 'Lỗi', description: 'Không thể tải ảnh lên máy chủ.');
+        AppNotifier.error(context, 
+          title: 'Lỗi upload', 
+          description: e.toString().replaceAll('Exception: ', '')
+        );
       }
     }
   }
@@ -93,11 +117,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       await _userApi.updateProfile(fullName: name, phone: phone);
       if (mounted) {
         AppNotifier.success(context, title: 'Thành công', description: 'Thông tin cá nhân đã được cập nhật.');
-        Navigator.pop(context, true); // Trả về true để màn hình hồ sơ reload
+        Navigator.pop(context, true); 
       }
     } catch (e) {
       if (mounted) {
-        AppNotifier.error(context, title: 'Lỗi', description: 'Không thể lưu thay đổi.');
+        AppNotifier.error(context, title: 'Lỗi', description: e.toString().replaceAll('Exception: ', ''));
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -109,7 +133,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final displayAvatar = _getFullImageUrl(_avatarUrl);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Thông tin cá nhân')),
+      appBar: AppBar(
+        title: const Text('Thông tin cá nhân'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_ios_new_rounded),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(AppSpacing.lg),
         child: Column(
@@ -117,15 +147,16 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             // Avatar Section
             Center(
               child: Stack(
+                clipBehavior: Clip.none,
                 children: [
                   Container(
-                    width: 100,
-                    height: 100,
+                    width: 120,
+                    height: 120,
                     decoration: BoxDecoration(
-                      color: AppColors.brandPrimarySoft,
+                      color: AppColors.bgSurface2,
                       shape: BoxShape.circle,
                       border: Border.all(color: AppColors.brandPrimary, width: 2),
-                      image: displayAvatar != null && !_isUploadingAvatar
+                      image: displayAvatar != null
                           ? DecorationImage(
                               image: NetworkImage(displayAvatar),
                               fit: BoxFit.cover,
@@ -133,14 +164,25 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           : null,
                     ),
                     child: _isUploadingAvatar 
-                      ? const Center(child: CircularProgressIndicator(strokeWidth: 3))
+                      ? Container(
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.4),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Center(
+                            child: CircularProgressIndicator(
+                              strokeWidth: 3,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          ),
+                        )
                       : (displayAvatar == null
                           ? Center(
                               child: Text(
                                 widget.profile.name.isEmpty ? 'U' : widget.profile.name[0].toUpperCase(),
                                 style: AppTypography.display.copyWith(
                                   color: AppColors.brandPrimary,
-                                  fontSize: 40,
+                                  fontSize: 48,
                                 ),
                               ),
                             )
@@ -149,12 +191,17 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                   Positioned(
                     bottom: 0,
                     right: 0,
-                    child: CircleAvatar(
-                      radius: 18,
-                      backgroundColor: AppColors.brandPrimary,
-                      child: IconButton(
-                        icon: const Icon(Icons.camera_alt, size: 18, color: Colors.white),
-                        onPressed: _isUploadingAvatar ? null : _handlePickImage,
+                    child: Material(
+                      color: AppColors.brandPrimary,
+                      shape: const CircleBorder(),
+                      elevation: 4,
+                      child: InkWell(
+                        onTap: _isUploadingAvatar ? null : _handlePickImage,
+                        customBorder: const CircleBorder(),
+                        child: const Padding(
+                          padding: EdgeInsets.all(10.0),
+                          child: Icon(Icons.camera_alt_rounded, size: 22, color: Colors.white),
+                        ),
                       ),
                     ),
                   ),
@@ -166,7 +213,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             _buildField(
               label: 'Họ và tên',
               controller: _nameController,
-              icon: Icons.person_outline,
+              icon: Icons.person_outline_rounded,
             ),
             const SizedBox(height: AppSpacing.lg),
             
@@ -181,7 +228,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             _buildField(
               label: 'Số điện thoại',
               controller: _phoneController,
-              icon: Icons.phone_android,
+              icon: Icons.phone_android_rounded,
               keyboardType: TextInputType.phone,
             ),
             const SizedBox(height: AppSpacing.huge),
@@ -189,6 +236,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
             AppButton(
               title: 'Lưu thay đổi',
               loading: _isSaving,
+              disabled: _isUploadingAvatar,
               onPressed: _handleSave,
             ),
           ],

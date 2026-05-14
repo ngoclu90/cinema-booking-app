@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../api/services/user_api.dart';
 import '../core/api_client.dart';
@@ -32,9 +33,15 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   bool _isRefreshing = false;
+  final _userApi = UserApi();
+  // Dùng timestamp để làm mới URL ảnh, tránh cache của Flutter
+  int _imageVersion = DateTime.now().millisecondsSinceEpoch;
 
   Future<void> _handleRefresh() async {
-    setState(() => _isRefreshing = true);
+    setState(() {
+      _isRefreshing = true;
+      _imageVersion = DateTime.now().millisecondsSinceEpoch;
+    });
     await widget.controller.reloadAccount();
     if (mounted) {
       setState(() => _isRefreshing = false);
@@ -43,8 +50,49 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   String? _getFullImageUrl(String? path) {
     if (path == null || path.isEmpty) return null;
-    if (path.startsWith('http')) return path;
-    return '${ApiClient.imgBaseUrl}$path';
+    String url = path.startsWith('http') ? path : '${ApiClient.imgBaseUrl}$path';
+    // Thêm query parameter để ép Flutter tải lại ảnh mới
+    return '$url?v=$_imageVersion';
+  }
+
+  Future<void> _handleUpdateAvatar() async {
+    try {
+      final ImagePicker picker = ImagePicker();
+      final XFile? image = await picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 70,
+      );
+
+      if (image == null) return;
+
+      setState(() => _isRefreshing = true);
+      
+      // Fix: Truyền trực tiếp đối tượng XFile thay vì image.path
+      final response = await _userApi.updateAvatar(image);
+      
+      if (mounted) {
+        await widget.controller.reloadAccount();
+        // Cập nhật version để làm mới UI ngay lập tức
+        setState(() {
+          _imageVersion = DateTime.now().millisecondsSinceEpoch;
+        });
+        AppNotifier.success(context, 
+          title: 'Thành công', 
+          description: response.message
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        AppNotifier.error(context, 
+          title: 'Lỗi upload', 
+          description: e.toString().replaceAll('Exception: ', '')
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isRefreshing = false);
+      }
+    }
   }
 
   @override
@@ -70,34 +118,55 @@ class _ProfileScreenState extends State<ProfileScreen> {
               children: [
                 Row(
                   children: [
-                    Container(
-                      width: 64,
-                      height: 64,
-                      decoration: BoxDecoration(
-                        color: AppColors.brandPrimarySoft,
-                        borderRadius: BorderRadius.circular(AppRadius.md),
-                        border: Border.all(color: AppColors.brandPrimary),
-                        image: avatarUrl != null
-                            ? DecorationImage(
-                                image: NetworkImage(avatarUrl),
-                                fit: BoxFit.cover,
-                              )
-                            : null,
-                      ),
-                      child: avatarUrl == null
-                          ? Center(
-                              child: Text(
-                                profile.name.trim().isEmpty
-                                    ? 'U'
-                                    : profile.name.trim().characters.first,
-                                style: AppTypography.title.copyWith(
-                                  color: AppColors.brandPrimary,
-                                ),
+                    GestureDetector(
+                      onTap: _isRefreshing ? null : _handleUpdateAvatar,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Container(
+                            width: 80,
+                            height: 80,
+                            decoration: BoxDecoration(
+                              color: AppColors.bgSurface2,
+                              borderRadius: BorderRadius.circular(AppRadius.lg),
+                              border: Border.all(color: AppColors.borderDefault, width: 2),
+                              image: avatarUrl != null
+                                  ? DecorationImage(
+                                      image: NetworkImage(avatarUrl),
+                                      fit: BoxFit.cover,
+                                    )
+                                  : null,
+                            ),
+                            child: avatarUrl == null
+                                ? Center(
+                                    child: Text(
+                                      profile.name.trim().isEmpty
+                                          ? 'U'
+                                          : profile.name.trim().characters.first,
+                                      style: AppTypography.title.copyWith(
+                                        fontSize: 32,
+                                        color: AppColors.brandPrimary,
+                                      ),
+                                    ),
+                                  )
+                                : null,
+                          ),
+                          Positioned(
+                            right: -4,
+                            bottom: -4,
+                            child: Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: const BoxDecoration(
+                                color: AppColors.brandPrimary,
+                                shape: BoxShape.circle,
                               ),
-                            )
-                          : null,
+                              child: const Icon(Icons.camera_alt, size: 14, color: Colors.white),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(width: AppSpacing.md),
+                    const SizedBox(width: AppSpacing.lg),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -107,23 +176,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: AppTypography.subtitle.copyWith(
+                              fontSize: 20,
                               color: AppColors.textPrimary,
                             ),
                           ),
                           const SizedBox(height: AppSpacing.xs),
                           Text(
                             profile.email,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                             style: AppTypography.caption.copyWith(
-                              color: AppColors.textSecondary,
+                              color: AppColors.textMuted,
                             ),
                           ),
-                          const SizedBox(height: AppSpacing.sm),
+                          const SizedBox(height: AppSpacing.md),
                           AppBadge(
                             label: account.roleLabel,
                             backgroundColor: AppColors.brandPrimarySoft,
-                            foregroundColor: AppColors.textPrimary,
+                            foregroundColor: AppColors.brandPrimary,
                             borderColor: AppColors.brandPrimary,
                           ),
                         ],
@@ -131,7 +199,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: AppSpacing.lg),
+                const SizedBox(height: AppSpacing.xl),
                 Row(
                   children: [
                     Expanded(
@@ -140,7 +208,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         value: account.leftStatValue,
                       ),
                     ),
-                    const SizedBox(width: AppSpacing.sm),
+                    const SizedBox(width: AppSpacing.md),
                     Expanded(
                       child: _StatTile(
                         label: account.rightStatLabel,
@@ -189,7 +257,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             subtitle: _themeLabel(widget.themeMode),
             onPressed: () => _showThemeSheet(context),
           ),
-          const SizedBox(height: AppSpacing.lg),
+          const SizedBox(height: AppSpacing.xl),
           AppButton(
             title: 'Đăng xuất',
             variant: AppButtonVariant.danger,
@@ -199,10 +267,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ],
       ),
     );
-  }
-
-  void _notify(BuildContext context, String title, String message) {
-    AppNotifier.info(context, title: title, description: message);
   }
 
   Future<void> _showThemeSheet(BuildContext context) async {
