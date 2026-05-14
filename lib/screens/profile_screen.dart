@@ -231,7 +231,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               final updated = await Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => EditProfileScreen(profile: profile),
+                  builder: (_) => EditProfileScreen(controller: widget.controller),
                 ),
               );
               if (updated == true) _handleRefresh();

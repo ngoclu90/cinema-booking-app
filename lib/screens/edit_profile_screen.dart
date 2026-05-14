@@ -5,12 +5,13 @@ import '../core/api_client.dart';
 import '../components/ui/index.dart';
 import '../design_system/tokens/index.dart';
 import '../models/profile.dart';
+import '../state/app_controller.dart';
 import '../utils/app_notifier.dart';
 
 class EditProfileScreen extends StatefulWidget {
-  final ProfileUser profile;
+  final AppController controller;
 
-  const EditProfileScreen({super.key, required this.profile});
+  const EditProfileScreen({super.key, required this.controller});
 
   @override
   State<EditProfileScreen> createState() => _EditProfileScreenState();
@@ -21,20 +22,19 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   late final TextEditingController _phoneController;
   final _userApi = UserApi();
   final _picker = ImagePicker();
-  
+
   bool _isSaving = false;
   bool _isUploadingAvatar = false;
-  String? _avatarUrl;
-  
+
   // Dùng timestamp để làm mới URL ảnh, tránh cache của Flutter
   int _imageVersion = DateTime.now().millisecondsSinceEpoch;
 
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(text: widget.profile.name);
-    _phoneController = TextEditingController(text: widget.profile.phone);
-    _avatarUrl = widget.profile.avatarUrl;
+    final profile = widget.controller.currentAccount?.profile ?? ProfileUser.empty();
+    _nameController = TextEditingController(text: profile.name);
+    _phoneController = TextEditingController(text: profile.phone);
   }
 
   @override
@@ -57,26 +57,28 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
         source: ImageSource.gallery,
         maxWidth: 512,
         maxHeight: 512,
-        imageQuality: 70, 
+        imageQuality: 70,
       );
 
       if (image == null) return;
 
       setState(() => _isUploadingAvatar = true);
 
-      // Gọi API POST /api/users/me/avatar
-      final response = await _userApi.updateAvatar(image);
+      // 1. Gọi API upload ảnh
+      await _userApi.updateAvatar(image);
 
       if (mounted) {
-        final newPath = response.data;
+        // 2. Cập nhật dữ liệu từ Server vào Controller ngay lập tức
+        await widget.controller.reloadAccount();
+
+        final updatedProfile = widget.controller.currentAccount?.profile;
         final newVersion = DateTime.now().millisecondsSinceEpoch;
 
-        // KỸ THUẬT QUAN TRỌNG: Tải ảnh vào RAM trước khi tắt loading để tránh nền đen
-        if (newPath != null && newPath.isNotEmpty) {
-          final nextFullUrl = _getFullImageUrl(newPath, version: newVersion);
+        // 3. Tải trước ảnh mới vào RAM để tránh hiện tượng "nền đen" khi cập nhật UI
+        if (updatedProfile?.avatarUrl != null && updatedProfile!.avatarUrl!.isNotEmpty) {
+          final nextFullUrl = _getFullImageUrl(updatedProfile.avatarUrl, version: newVersion);
           if (nextFullUrl != null) {
             try {
-              // Tải ảnh vào RAM trước
               await precacheImage(NetworkImage(nextFullUrl), context);
             } catch (e) {
               debugPrint('--- [PRECACHE ERROR] $e ---');
@@ -84,20 +86,20 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
           }
         }
 
+        // 4. Chỉ cập nhật UI khi mọi thứ đã sẵn sàng
         setState(() {
-          _avatarUrl = newPath;
           _imageVersion = newVersion;
-          _isUploadingAvatar = false; // Chỉ tắt loading sau khi ảnh đã nạp vào RAM
+          _isUploadingAvatar = false;
         });
-        
+
         AppNotifier.success(context, title: 'Thành công', description: 'Đã cập nhật ảnh đại diện');
       }
     } catch (e) {
       if (mounted) {
         setState(() => _isUploadingAvatar = false);
-        AppNotifier.error(context, 
-          title: 'Lỗi upload', 
-          description: e.toString().replaceAll('Exception: ', '')
+        AppNotifier.error(context,
+            title: 'Lỗi upload',
+            description: e.toString().replaceAll('Exception: ', '')
         );
       }
     }
@@ -115,9 +117,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     setState(() => _isSaving = true);
     try {
       await _userApi.updateProfile(fullName: name, phone: phone);
+      await widget.controller.reloadAccount();
+
       if (mounted) {
         AppNotifier.success(context, title: 'Thành công', description: 'Thông tin cá nhân đã được cập nhật.');
-        Navigator.pop(context, true); 
+        Navigator.pop(context, true);
       }
     } catch (e) {
       if (mounted) {
@@ -130,7 +134,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final displayAvatar = _getFullImageUrl(_avatarUrl);
+    // Lấy thông tin mới nhất từ Controller
+    final profile = widget.controller.currentAccount?.profile ?? ProfileUser.empty();
+    final displayAvatar = _getFullImageUrl(profile.avatarUrl);
 
     return Scaffold(
       appBar: AppBar(
@@ -156,37 +162,36 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                       color: AppColors.bgSurface2,
                       shape: BoxShape.circle,
                       border: Border.all(color: AppColors.brandPrimary, width: 2),
-                      image: displayAvatar != null
-                          ? DecorationImage(
-                              image: NetworkImage(displayAvatar),
-                              fit: BoxFit.cover,
-                            )
-                          : null,
                     ),
-                    child: _isUploadingAvatar 
-                      ? Container(
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.4),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Center(
-                            child: CircularProgressIndicator(
-                              strokeWidth: 3,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                            ),
-                          ),
-                        )
-                      : (displayAvatar == null
-                          ? Center(
-                              child: Text(
-                                widget.profile.name.isEmpty ? 'U' : widget.profile.name[0].toUpperCase(),
-                                style: AppTypography.display.copyWith(
-                                  color: AppColors.brandPrimary,
-                                  fontSize: 48,
+                    child: ClipOval(
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          // Ảnh đại diện
+                          if (displayAvatar != null)
+                            Image.network(
+                              displayAvatar,
+                              fit: BoxFit.cover,
+                              gaplessPlayback: true, // GIỮ ẢNH CŨ CHO ĐẾN KHI ẢNH MỚI TẢI XONG
+                              errorBuilder: (_, __, ___) => _buildPlaceholder(),
+                            )
+                          else
+                            _buildPlaceholder(),
+
+                          // Lớp phủ loading
+                          if (_isUploadingAvatar)
+                            Container(
+                              color: Colors.black.withOpacity(0.4),
+                              child: const Center(
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 3,
+                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                                 ),
                               ),
-                            )
-                          : null),
+                            ),
+                        ],
+                      ),
+                    ),
                   ),
                   Positioned(
                     bottom: 0,
@@ -209,22 +214,22 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               ),
             ),
             const SizedBox(height: AppSpacing.xxxl),
-            
+
             _buildField(
               label: 'Họ và tên',
               controller: _nameController,
               icon: Icons.person_outline_rounded,
             ),
             const SizedBox(height: AppSpacing.lg),
-            
+
             _buildField(
               label: 'Email',
-              controller: TextEditingController(text: widget.profile.email),
+              controller: TextEditingController(text: widget.controller.currentAccount?.email ?? ''),
               icon: Icons.email_outlined,
               enabled: false,
             ),
             const SizedBox(height: AppSpacing.lg),
-            
+
             _buildField(
               label: 'Số điện thoại',
               controller: _phoneController,
@@ -232,7 +237,7 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               keyboardType: TextInputType.phone,
             ),
             const SizedBox(height: AppSpacing.huge),
-            
+
             AppButton(
               title: 'Lưu thay đổi',
               loading: _isSaving,
@@ -240,6 +245,21 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
               onPressed: _handleSave,
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlaceholder() {
+    String initial = _nameController.text.isNotEmpty
+        ? _nameController.text[0].toUpperCase()
+        : 'U';
+    return Center(
+      child: Text(
+        initial,
+        style: AppTypography.display.copyWith(
+          color: AppColors.brandPrimary,
+          fontSize: 48,
         ),
       ),
     );
