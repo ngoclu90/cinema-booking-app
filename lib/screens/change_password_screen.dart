@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
 import '../api/services/auth_api.dart';
 import '../core/api_client.dart';
 import '../components/ui/index.dart';
