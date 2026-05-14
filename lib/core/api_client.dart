@@ -12,8 +12,8 @@ class ApiClient {
   late final Dio dio;
   static String? _authToken;
 
-  static String get host =>
-      kIsWeb ? 'localhost' : (Platform.isAndroid ? '10.0.2.2' : 'localhost');
+  static String get host => 'localhost';
+
   static String get baseUrl => 'http://$host:8080/api/';
 
   // Bổ sung imgBaseUrl để hiển thị ảnh từ Server
