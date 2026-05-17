@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../components/cinema/index.dart';
-import '../components/movie/index.dart';
 import '../components/ui/index.dart';
 import '../design_system/tokens/index.dart';
 import '../layouts/app_shell/index.dart';
 import '../models/cinema.dart';
 import '../models/movie.dart';
 import '../models/showtime.dart';
+import '../models/showtime_item.dart';
 import '../utils/app_notifier.dart';
 import '../data/services/movie_service.dart';
 import '../utils/image_helper.dart';
@@ -76,7 +76,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       final response = await _movieService.getCinemasWithShowtimes(_currentMovie.id);
       if (!mounted) return;
 
-      final rawDataList = response?.data ?? [];
+      final List<MovieWithShowtimesDto> rawDataList = response?.data ?? [];
       final List<Cinema> tempCinemas = [];
       final Map<String, List<Showtime>> tempShowtimesMap = {};
 
@@ -87,11 +87,10 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
           id: cinemaIdStr,
           name: cinemaDto.cinemaName,
           address: cinemaDto.address ?? 'Địa chỉ đang cập nhật',
-          // Lấy ảnh rạp từ API
           imageUrl: ImageHelper.getCorrectImageUrl(cinemaDto.cinemaImageUrl),
           status: 'Đang mở cửa',
           distance: '0.0 km',
-          halls: 5,
+          halls: cinemaDto.showtimes.map((s) => s.roomName).toSet().length,
           phone: '1900 6017',
           landmark: 'Khu vực gần đó',
           operatingHours: '08:00 - 23:00',
@@ -133,27 +132,28 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     for (int i = 0; i < _dates.length; i++) {
       final key = DateFormat('yyyy-MM-dd').format(_dates[i]);
       if (cinemas.any((c) => (showtimesMap[c.id] ?? []).any((s) => s.dateLabel == key))) {
-        _selectedDateIndex = i; _selectDate(i); return;
+        _selectedDateIndex = i;
+        _selectDate(i);
+        return;
       }
     }
     _selectedDateIndex = 0;
   }
 
   void _selectDate(int index) {
-    setState(() => _selectedDateIndex = index);
-    final key = DateFormat('yyyy-MM-dd').format(_dates[index]);
-    Cinema? nextC; Showtime? nextS;
-    for (var c in _cinemas) {
-      final list = (_cinemaShowtimes[c.id] ?? []).where((s) => s.dateLabel == key).toList();
-      if (list.isNotEmpty) { nextC = c; nextS = list.first; break; }
-    }
-    setState(() { _selectedCinema = nextC; _selectedShowtime = nextS; });
+    setState(() {
+      _selectedDateIndex = index;
+      _selectedShowtime = null;
+      _selectedCinema = null;
+    });
   }
 
   void _openSeatSelection() {
     if (_selectedShowtime == null) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => SeatSelectionScreen(
-      movie: _currentMovie, showtime: _selectedShowtime!, cinema: _selectedCinema!,
+      movie: _currentMovie,
+      showtime: _selectedShowtime!,
+      cinema: _selectedCinema!,
     )));
   }
 
@@ -221,7 +221,8 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       final list = (_cinemaShowtimes[cinema.id] ?? []).where((s) => s.dateLabel == key).toList();
       return Padding(
         padding: const EdgeInsets.only(bottom: AppSpacing.md),
-        child: CinemaCard(
+        // Sử dụng giao diện Local xử lý riêng UI chia rạp
+        child: _GroupedCinemaCard(
           cinema: cinema,
           showtimes: list,
           selectedShowtime: _selectedCinema?.id == cinema.id ? _selectedShowtime : null,
@@ -231,6 +232,152 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     }).toList());
   }
 }
+
+// -----------------------------------------------------------------------------------------
+// WIDGET GIAO DIỆN HỖ TRỢ TRONG FILE
+// (Xử lý UX/UI phân tách phòng chiếu hoàn hảo mà không ảnh hưởng tới Model/Component gốc)
+// -----------------------------------------------------------------------------------------
+
+class _GroupedCinemaCard extends StatelessWidget {
+  final Cinema cinema;
+  final List<Showtime> showtimes;
+  final Showtime? selectedShowtime;
+  final ValueChanged<Showtime> onShowtimeSelected;
+
+  const _GroupedCinemaCard({
+    required this.cinema,
+    required this.showtimes,
+    this.selectedShowtime,
+    required this.onShowtimeSelected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    // 1. Gom nhóm danh sách suất chiếu theo thuộc tính screen (Phòng chiếu)
+    final Map<String, List<Showtime>> roomGroups = {};
+    for (var s in showtimes) {
+      roomGroups.putIfAbsent(s.screen, () => []).add(s);
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.bgSurface2,
+        borderRadius: BorderRadius.circular(AppRadius.md),
+        border: Border.all(color: AppColors.borderDefault),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      cinema.name,
+                      style: AppTypography.subtitle.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      cinema.address,
+                      style: AppTypography.caption.copyWith(color: AppColors.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: [
+              _buildMetaBadge(Icons.navigation, cinema.distance),
+              const SizedBox(width: AppSpacing.sm),
+              _buildMetaBadge(Icons.access_time, cinema.operatingHours),
+              const SizedBox(width: AppSpacing.sm),
+              _buildMetaBadge(Icons.door_sliding_outlined, "${cinema.halls} phòng"),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.lg),
+          // 2. Trải phẳng UI theo từng nhóm phòng
+          ...roomGroups.entries.map((entry) {
+            final String roomName = entry.key;
+            final List<Showtime> roomShowtimes = entry.value;
+
+            return Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.md),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    roomName,
+                    style: AppTypography.captionStrong.copyWith(color: AppColors.textSecondary),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  Wrap(
+                    spacing: AppSpacing.sm,
+                    runSpacing: AppSpacing.sm,
+                    children: roomShowtimes.map((showtime) {
+                      final bool isSelected = selectedShowtime?.id == showtime.id;
+
+                      return GestureDetector(
+                        onTap: () => onShowtimeSelected(showtime),
+                        child: Container(
+                          width: 80, // Độ rộng ô vừa vặn cho UI
+                          padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+                          decoration: BoxDecoration(
+                            color: isSelected ? AppColors.brandPrimary : AppColors.bgSurface3,
+                            borderRadius: BorderRadius.circular(AppRadius.sm),
+                            border: Border.all(
+                              color: isSelected ? AppColors.brandPrimary : AppColors.borderDefault,
+                            ),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            showtime.time,
+                            style: AppTypography.bodyStrong.copyWith(
+                              color: isSelected ? Colors.white : AppColors.textPrimary,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMetaBadge(IconData icon, String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm, vertical: 4),
+      decoration: BoxDecoration(
+        border: Border.all(color: AppColors.borderDefault),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: AppColors.textMuted),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: AppTypography.caption.copyWith(color: AppColors.textMuted, fontSize: 11),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// -----------------------------------------------------------------------------------------
+// CÁC WIDGET PHỤ GỐC ĐƯỢC GIỮ NGUYÊN
+// -----------------------------------------------------------------------------------------
 
 class _DateSelector extends StatelessWidget {
   final List<DateTime> dates;

@@ -1,21 +1,14 @@
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 class ImageHelper {
-  static String get _host {
-    if (kIsWeb) return "localhost";
-    if (Platform.isAndroid) {
-      return "192.168.123.7";
-    }
-    return "localhost";
-  }
-
+  // Đã chuyển thành localhost cố định cho mọi thiết bị
+  static const String _host = "localhost";
   static const String _port = "8080";
 
   static String getCorrectImageUrl(String? posterUrl) {
     if (posterUrl == null || posterUrl.trim().isEmpty) {
       return "assets/images/placeholder.png";
-    }
+    } 
 
     String raw = posterUrl.trim();
 
