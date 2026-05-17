@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../../../design_system/tokens/index.dart';
 import '../../../models/ticket.dart';
@@ -11,6 +12,21 @@ class TicketCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    String dateStr = '';
+    String timeStr = '';
+    try {
+      if (ticket.showTime.isNotEmpty) {
+        final parsedDate = DateTime.parse(ticket.showTime).toLocal();
+        dateStr = DateFormat('dd/MM/yyyy').format(parsedDate);
+        timeStr = DateFormat('HH:mm').format(parsedDate);
+      }
+    } catch (_) {
+      dateStr = ticket.showTime;
+      timeStr = '--:--';
+    }
+
+    final formattedPrice = NumberFormat.currency(locale: 'vi_VN', symbol: 'đ').format(ticket.totalPrice);
+
     return AppCard(
       padding: AppCardPadding.md,
       child: Column(
@@ -74,13 +90,13 @@ class TicketCard extends StatelessWidget {
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
             children: [
-              AppBadge(label: ticket.date, icon: const Icon(Icons.event)),
-              AppBadge(label: ticket.time, icon: const Icon(Icons.schedule)),
+              AppBadge(label: dateStr, icon: const Icon(Icons.event, size: 14)),
+              AppBadge(label: timeStr, icon: const Icon(Icons.schedule, size: 14)),
               AppBadge(
-                label: ticket.screen,
-                icon: const Icon(Icons.meeting_room_outlined),
+                label: ticket.roomName,
+                icon: const Icon(Icons.meeting_room_outlined, size: 14),
               ),
-              AppBadge(label: ticket.seat, icon: const Icon(Icons.event_seat)),
+              AppBadge(label: ticket.seatCodes, icon: const Icon(Icons.event_seat, size: 14)),
             ],
           ),
           const SizedBox(height: AppSpacing.md),
@@ -88,7 +104,7 @@ class TicketCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  ticket.qrHint,
+                  'Đưa mã này cho nhân viên soát vé',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: AppTypography.caption.copyWith(
@@ -98,7 +114,7 @@ class TicketCard extends StatelessWidget {
               ),
               const SizedBox(width: AppSpacing.sm),
               Text(
-                ticket.price,
+                formattedPrice,
                 style: AppTypography.bodyStrong.copyWith(
                   color: AppColors.brandPrimary,
                 ),

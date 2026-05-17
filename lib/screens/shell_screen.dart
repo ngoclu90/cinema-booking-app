@@ -7,7 +7,7 @@ import 'movie_screen.dart';
 import 'profile_screen.dart';
 import 'ticket_screen.dart';
 import 'movie_detail_screen.dart';
-import 'voucher_screen.dart';
+import 'newspaper_screen.dart';
 
 /*
  * Lớp ShellScreen:
@@ -38,7 +38,7 @@ class _ShellScreenState extends State<ShellScreen> {
       key: const PageStorageKey<String>('movie-tab'),
       onMovieTap: _openMovieDetail,
     ),
-    const VoucherScreen(key: PageStorageKey<String>('voucher-tab')),
+    const NewspaperScreen(key: PageStorageKey<String>('voucher-tab')),
     const TicketScreen(key: PageStorageKey<String>('ticket-tab')),
     ProfileScreen(
       key: const PageStorageKey<String>('profile-tab'),

@@ -28,5 +28,13 @@ class ApiEndpoints {
   static const String showtimes = 'showtimes';
   static const String bookings = 'bookings';
   static const String vouchers = 'vouchers';
-  static const String news = 'news';
+
+  // News Paper Endpoints
+  static const String publicPosts = 'public/posts';
+  static String publicPostDetail(int id) => 'public/posts/$id';
+
+  // my ticket Enpoints
+  static String showtimeSeats(int id) => 'showtimes/$id/seats';
+  static const String holdSeat = 'booking/hold-seat';
+  static const String releaseSeat = 'booking/release-seat';
 }

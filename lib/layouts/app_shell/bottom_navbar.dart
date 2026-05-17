@@ -21,8 +21,8 @@ class BottomNavbar extends StatelessWidget {
   static const List<BottomNavItem> items = [
     BottomNavItem(label: 'Trang chủ', icon: Icons.home_outlined),
     BottomNavItem(label: 'Phim', icon: Icons.local_movies_outlined),
-    BottomNavItem(label: 'Voucher', icon: Icons.confirmation_number_outlined),
-    BottomNavItem(label: 'Vé của tôi', icon: Icons.event_seat_outlined),
+    BottomNavItem(label: 'Tin Tức', icon: Icons.newspaper),
+    BottomNavItem(label: 'Vé của tôi', icon: Icons.confirmation_number),
     BottomNavItem(label: 'Hồ sơ', icon: Icons.person_outline),
   ];
 
