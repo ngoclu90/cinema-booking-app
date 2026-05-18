@@ -221,7 +221,6 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       final list = (_cinemaShowtimes[cinema.id] ?? []).where((s) => s.dateLabel == key).toList();
       return Padding(
         padding: const EdgeInsets.only(bottom: AppSpacing.md),
-        // Sử dụng giao diện Local xử lý riêng UI chia rạp
         child: _GroupedCinemaCard(
           cinema: cinema,
           showtimes: list,
@@ -232,11 +231,6 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     }).toList());
   }
 }
-
-// -----------------------------------------------------------------------------------------
-// WIDGET GIAO DIỆN HỖ TRỢ TRONG FILE
-// (Xử lý UX/UI phân tách phòng chiếu hoàn hảo mà không ảnh hưởng tới Model/Component gốc)
-// -----------------------------------------------------------------------------------------
 
 class _GroupedCinemaCard extends StatelessWidget {
   final Cinema cinema;
@@ -253,7 +247,6 @@ class _GroupedCinemaCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 1. Gom nhóm danh sách suất chiếu theo thuộc tính screen (Phòng chiếu)
     final Map<String, List<Showtime>> roomGroups = {};
     for (var s in showtimes) {
       roomGroups.putIfAbsent(s.screen, () => []).add(s);
@@ -300,7 +293,6 @@ class _GroupedCinemaCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: AppSpacing.lg),
-          // 2. Trải phẳng UI theo từng nhóm phòng
           ...roomGroups.entries.map((entry) {
             final String roomName = entry.key;
             final List<Showtime> roomShowtimes = entry.value;
@@ -324,7 +316,7 @@ class _GroupedCinemaCard extends StatelessWidget {
                       return GestureDetector(
                         onTap: () => onShowtimeSelected(showtime),
                         child: Container(
-                          width: 80, // Độ rộng ô vừa vặn cho UI
+                          width: 80,
                           padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
                           decoration: BoxDecoration(
                             color: isSelected ? AppColors.brandPrimary : AppColors.bgSurface3,
@@ -374,10 +366,6 @@ class _GroupedCinemaCard extends StatelessWidget {
     );
   }
 }
-
-// -----------------------------------------------------------------------------------------
-// CÁC WIDGET PHỤ GỐC ĐƯỢC GIỮ NGUYÊN
-// -----------------------------------------------------------------------------------------
 
 class _DateSelector extends StatelessWidget {
   final List<DateTime> dates;
@@ -448,8 +436,39 @@ class _CinematicHeader extends StatelessWidget {
       child: Stack(
         children: [
           Container(height: 260, width: double.infinity, color: AppColors.bgSurface3, child: bannerUrl.isNotEmpty ? Image.network(bannerUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.movie)) : const SizedBox.shrink()),
+
+          // Lớp Gradient phủ ở dưới (dành cho poster phim)
           Positioned.fill(bottom: 60, child: Container(decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Colors.transparent, Colors.black.withOpacity(0.8)])))),
-          Positioned(top: 40, left: 20, child: AppHeaderIconButton(icon: Icons.arrow_back, label: 'Quay lại', onPressed: () => Navigator.pop(context))),
+
+          // Lớp Gradient phủ ở góc trên để làm nổi bật nút Back giống NewPaper Detail
+          Positioned.fill(
+            bottom: 60,
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withOpacity(0.6),
+                    Colors.transparent,
+                  ],
+                  stops: const [0.0, 0.4],
+                ),
+              ),
+            ),
+          ),
+
+          // Vị trí nút Back tính theo tai thỏ màn hình giống y hệt trang Newspaper Detail
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            left: AppSpacing.md,
+            child: AppHeaderIconButton(
+              icon: Icons.arrow_back,
+              label: 'Quay lại',
+              onPressed: () => Navigator.pop(context),
+            ),
+          ),
+
           Positioned(bottom: 0, left: AppSpacing.lg, child: Container(height: 160, width: 110, decoration: BoxDecoration(borderRadius: BorderRadius.circular(AppRadius.md), border: Border.all(color: AppColors.bgApp, width: 3)), child: ClipRRect(borderRadius: BorderRadius.circular(AppRadius.sm), child: Hero(tag: heroTag, child: posterUrl.isNotEmpty ? Image.network(posterUrl, fit: BoxFit.cover) : Container(color: AppColors.bgSurface2))))),
         ],
       ),

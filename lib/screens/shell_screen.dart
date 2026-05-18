@@ -7,7 +7,7 @@ import 'movie_screen.dart';
 import 'profile_screen.dart';
 import 'ticket_screen.dart';
 import 'movie_detail_screen.dart';
-import 'voucher_screen.dart';
+import 'newspaper_screen.dart';
 
 /*
  * Lớp ShellScreen:
@@ -26,6 +26,7 @@ class ShellScreen extends StatefulWidget {
 class _ShellScreenState extends State<ShellScreen> {
   int _selectedIndex = 0;
 
+  // Chuyển _pages thành dạng hàm (hoặc getter) để luôn lấy được themeMode mới nhất từ controller
   List<Widget> get _pages => [
     HomeScreen(
       key: const PageStorageKey<String>('home-tab'),
@@ -38,11 +39,12 @@ class _ShellScreenState extends State<ShellScreen> {
       key: const PageStorageKey<String>('movie-tab'),
       onMovieTap: _openMovieDetail,
     ),
-    const VoucherScreen(key: PageStorageKey<String>('voucher-tab')),
+    const NewspaperScreen(key: PageStorageKey<String>('voucher-tab')),
     const TicketScreen(key: PageStorageKey<String>('ticket-tab')),
     ProfileScreen(
       key: const PageStorageKey<String>('profile-tab'),
       controller: widget.controller,
+      // Lấy themeMode trực tiếp từ controller
       themeMode: widget.controller.themeMode,
       onThemeModeChanged: widget.controller.setThemeMode,
       onLogout: widget.controller.logout,
@@ -71,52 +73,43 @@ class _ShellScreenState extends State<ShellScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return AppShell(
-      selectedIndex: _selectedIndex,
-      onTabSelected: _selectTab,
-      child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 250), // Thời gian chuyển cảnh mượt mà
-        switchInCurve: Curves.easeInCubic,
-        switchOutCurve: Curves.easeOutCubic,
+    // BỌC LISTENABLE BUILDER Ở ĐÂY:
+    // Giúp AppShell và các Tab bên trong tự động cập nhật UI khi bồ đổi Theme Sáng/Tối
+    return ListenableBuilder(
+      listenable: widget.controller,
+      builder: (context, _) {
+        return AppShell(
+          selectedIndex: _selectedIndex,
+          onTabSelected: _selectTab,
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 250),
+            switchInCurve: Curves.easeInCubic,
+            switchOutCurve: Curves.easeOutCubic,
 
-        /* * THAY ĐỔI HIỆU ỨNG TẠI ĐÂY:
-         * Hiện tại tui đang để mặc định là "HIỆU ỨNG 1: FADE & ZOOM (Chuẩn Material 3)".
-         * Nếu ông thích "FADE thuần túy", hãy comment khối này lại và dùng khối ở dưới nhé.
-         */
+            // --- [HIỆU ỨNG 1]: FADE & ZOOM (Thu phóng và Mờ dần nghệ thuật) ---
+            transitionBuilder: (Widget child, Animation<double> animation) {
+              final scaleAnimation = Tween<double>(begin: 0.96, end: 1.0).animate(
+                CurvedAnimation(parent: animation, curve: Curves.easeOut),
+              );
+              return FadeTransition(
+                opacity: animation,
+                child: ScaleTransition(
+                  scale: scaleAnimation,
+                  child: child,
+                ),
+              );
+            },
 
-        // --- [HIỆU ỨNG 1]: FADE & ZOOM (Thu phóng và Mờ dần nghệ thuật) ---
-        transitionBuilder: (Widget child, Animation<double> animation) {
-          final scaleAnimation = Tween<double>(begin: 0.96, end: 1.0).animate(
-            CurvedAnimation(parent: animation, curve: Curves.easeOut),
-          );
-          return FadeTransition(
-            opacity: animation,
-            child: ScaleTransition(
-              scale: scaleAnimation,
-              child: child,
+            child: KeyedSubtree(
+              key: ValueKey<int>(_selectedIndex),
+              child: IndexedStack(
+                index: _selectedIndex,
+                children: _pages,
+              ),
             ),
-          );
-        },
-
-        // --- [HIỆU ỨNG 2]: FADE ONLY (Mờ dần tối giản - Muốn dùng thì mở khóa ở dưới) ---
-        /*
-        transitionBuilder: (Widget child, Animation<double> animation) {
-          return FadeTransition(
-            opacity: animation,
-            child: child,
-          );
-        },
-        */
-
-        // Dùng KeyedSubtree kết hợp ValueKey của tab hiện tại để AnimatedSwitcher nhận biết và kích hoạt hiệu ứng
-        child: KeyedSubtree(
-          key: ValueKey<int>(_selectedIndex),
-          child: IndexedStack(
-            index: _selectedIndex,
-            children: _pages,
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
