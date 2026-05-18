@@ -1,3 +1,5 @@
+import 'package:cinema_booking_app/data/services/voucher_service.dart';
+
 import '../../models/news_item.dart';
 import '../../models/voucher.dart';
 import '../../mocks/mock_data.dart';
@@ -8,7 +10,6 @@ class VoucherApi {
   final ApiClient _client;
 
   const VoucherApi({ApiClient client = const ApiClient()}) : _client = client;
-
   Future<ApiResponse<List<Voucher>>> getVouchers() {
     return _client.resolve('Fetched vouchers', vouchers);
   }

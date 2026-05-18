@@ -28,6 +28,8 @@ class ApiEndpoints {
   static const String showtimes = 'showtimes';
   static const String bookings = 'bookings';
   static const String vouchers = 'vouchers';
+  static const String news = 'news';
+  static const String post = '/public/posts';
 
   // News Paper Endpoints
   static const String publicPosts = 'public/posts';

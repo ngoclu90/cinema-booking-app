@@ -1,3 +1,5 @@
+import 'package:flutter/cupertino.dart';
+
 class Voucher {
   final String id;
   final String title;
@@ -28,7 +30,17 @@ class Voucher {
       imageUrl: json['imageUrl']?.toString() ?? '',
     );
   }
-
+  factory Voucher.fromJson2(Map<String,dynamic>json){
+    return Voucher(
+      id: json['id']?.toString() ?? '',
+      title: '',
+      description: json['description']?.toString() ?? '',
+      expiryLabel: '',
+      category: '',
+      code: json['code']?.toString() ?? '',
+      imageUrl: '',
+    );
+  }
   Map<String, dynamic> toJson() {
     return {
       'id': id,
