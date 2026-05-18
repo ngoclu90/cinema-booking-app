@@ -1,9 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
-
-import 'success_screen.dart';
 
 class PaymentWebViewScreen extends StatefulWidget {
   final String paymentUrl;
@@ -16,6 +16,8 @@ class PaymentWebViewScreen extends StatefulWidget {
 
 class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
   WebViewController? _controller;
+  static const String _legacyCallbackPrefix =
+      'http://localhost:3000/payment-result';
 
   @override
   void initState() {
@@ -31,46 +33,65 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
   }
 
   NavigationDecision _handleNavigation(NavigationRequest request) {
-    const callbackPrefix = 'http://localhost:3000/payment-result';
-    if (request.url.startsWith(callbackPrefix)) {
-      final uri = Uri.tryParse(request.url);
+    final uri = Uri.tryParse(request.url);
+    if (uri == null) {
+      return NavigationDecision.navigate;
+    }
 
-      // Parse query params safely for downstream screen.
-      final status = uri?.queryParameters['status'] ?? '';
-      final orderId = uri?.queryParameters['orderId'] ?? '';
-      final bookingCode = uri?.queryParameters['bookingCode'] ?? '';
-      final movieName = uri?.queryParameters['movieName'] ?? '';
-      final seatList = uri?.queryParameters['seatList'] ?? '';
-      final totalPrice = uri?.queryParameters['totalPrice'] ?? '';
-
-      final navigator = Navigator.of(context);
-      navigator.pop();
-
-      if (status == 'success') {
-        navigator.pushReplacement(
-          MaterialPageRoute(
-            builder: (_) => SuccessScreen(
-              status: status,
-              orderId: orderId,
-              bookingCode: bookingCode,
-              movieName: movieName,
-              seatList: seatList,
-              totalPrice: totalPrice,
-            ),
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(navigator.context).showSnackBar(
-          const SnackBar(
-            content: Text('Thanh toán thất bại. Vui lòng thử lại.'),
-          ),
-        );
-      }
-
+    if (_isPaymentCallback(uri)) {
+      unawaited(_handlePaymentResult(uri));
       return NavigationDecision.prevent;
     }
 
     return NavigationDecision.navigate;
+  }
+
+  bool _isPaymentCallback(Uri uri) {
+    final url = uri.toString();
+    if (url.startsWith(_legacyCallbackPrefix)) {
+      return true;
+    }
+
+    final path = uri.path.toLowerCase();
+    return path.contains('/payment') && path.contains('/return');
+  }
+
+  bool _isPaymentSuccess(Uri uri) {
+    final status = uri.queryParameters['status']?.toLowerCase();
+    if (status == 'success') return true;
+
+    final resultCode = uri.queryParameters['resultCode'];
+    if (resultCode == '0' || resultCode == '00') return true;
+
+    final vnpResponseCode = uri.queryParameters['vnp_ResponseCode'];
+    if (vnpResponseCode == '00') return true;
+
+    final vnpTransactionStatus = uri.queryParameters['vnp_TransactionStatus'];
+    if (vnpTransactionStatus == '00') return true;
+
+    return false;
+  }
+
+  Future<void> _handlePaymentResult(Uri uri) async {
+    final success = _isPaymentSuccess(uri);
+
+    await _controller?.clearCache();
+    await _controller?.clearLocalStorage();
+
+    if (!mounted) return;
+
+    final navigator = Navigator.of(context);
+    if (success) {
+      navigator.popUntil((route) => route.isFirst);
+      return;
+    }
+
+    navigator.pop();
+    ScaffoldMessenger.of(navigator.context).showSnackBar(
+      const SnackBar(
+        content: Text('Thanh toán thất bại. Vui lòng thử lại.'),
+      ),
+    );
   }
 
   @override
