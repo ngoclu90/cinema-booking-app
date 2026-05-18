@@ -73,8 +73,6 @@ class _ShellScreenState extends State<ShellScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // BỌC LISTENABLE BUILDER Ở ĐÂY:
-    // Giúp AppShell và các Tab bên trong tự động cập nhật UI khi bồ đổi Theme Sáng/Tối
     return ListenableBuilder(
       listenable: widget.controller,
       builder: (context, _) {
