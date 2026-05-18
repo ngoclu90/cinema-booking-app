@@ -43,6 +43,11 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
       return NavigationDecision.prevent;
     }
 
+    if (_shouldOpenExternally(uri)) {
+      unawaited(_openExternalUrl(uri));
+      return NavigationDecision.prevent;
+    }
+
     return NavigationDecision.navigate;
   }
 
@@ -53,7 +58,20 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     }
 
     final path = uri.path.toLowerCase();
-    return path.contains('/payment') && path.contains('/return');
+    if (path.contains('/payment') && path.contains('/return')) {
+      return true;
+    }
+
+    final params = uri.queryParameters;
+    return params.containsKey('status') ||
+        params.containsKey('resultCode') ||
+        params.containsKey('vnp_ResponseCode') ||
+        params.containsKey('vnp_TransactionStatus');
+  }
+
+  bool _shouldOpenExternally(Uri uri) {
+    final scheme = uri.scheme.toLowerCase();
+    return scheme.isNotEmpty && scheme != 'http' && scheme != 'https';
   }
 
   bool _isPaymentSuccess(Uri uri) {
@@ -88,9 +106,7 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
 
     navigator.pop();
     ScaffoldMessenger.of(navigator.context).showSnackBar(
-      const SnackBar(
-        content: Text('Thanh toán thất bại. Vui lòng thử lại.'),
-      ),
+      const SnackBar(content: Text('Thanh toán thất bại. Vui lòng thử lại.')),
     );
   }
 
@@ -142,6 +158,10 @@ class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
     if (uri == null) {
       return;
     }
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  Future<void> _openExternalUrl(Uri uri) async {
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 }
